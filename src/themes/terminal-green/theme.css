@@ -1,0 +1,243 @@
+:root {
+  /* ── Colors ── */
+  --bg-primary: #1a1f16;
+  --bg-secondary: #222820;
+  --bg-display: #141812;
+  --bg-panel: #222820;
+
+  --text-primary: #c8d8b0;
+  --text-secondary: #8a9a72;
+  --text-dim: #4a5a3a;
+  --text-accent: #a0b888;
+
+  --accent: #8aaa70;
+  --accent-dim: rgba(138, 170, 112, 0.10);
+  --accent-glow: rgba(138, 170, 112, 0.15);
+  --accent-secondary: #6a8a50;
+
+  --ctrl-bg: transparent;
+  --ctrl-hover: rgba(138, 170, 112, 0.10);
+  --ctrl-active: rgba(138, 170, 112, 0.14);
+
+  --bar-bg: rgba(138, 170, 112, 0.10);
+  --bar-fill: linear-gradient(90deg, #5a7a44, #8aaa70);
+  --bar-handle: #8aaa70;
+
+  --border: rgba(138, 170, 112, 0.08);
+  --border-accent: rgba(138, 170, 112, 0.12);
+  --shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
+  --glow: none;
+
+  --viz-color-1: #7a9a60;
+  --viz-color-2: #5a7a44;
+  --viz-color-3: #4a6a34;
+
+  --titlebar-bg: rgba(0, 0, 0, 0.15);
+  --titlebar-text: #5a6a4a;
+
+  --artwork-border: transparent;
+  --artwork-shadow: none;
+
+  --panel-bg: #222820;
+  --logo-color: #3a4a2e;
+  --logo-accent-color: #8aaa70;
+
+  /* ── Fonts ── */
+  --font-display: 'SF Mono', 'Menlo', 'Share Tech Mono', monospace;
+  --font-ui: -apple-system, 'SF Pro Text', 'Inter', sans-serif;
+
+  /* ── Font sizes ── */
+  --fs-titlebar: 11px;
+  --fs-marquee: 14px;
+  --fs-album: 11px;
+  --fs-time: 11px;
+  --fs-time-total: 11px;
+  --fs-bottom: 8px;
+  --fs-logo: 11px;
+
+  /* ── Sizing ── */
+  --titlebar-height: 36px;
+  --viz-height: 72px;
+  --seek-height: 3px;
+  --volume-height: 3px;
+  --handle-size: 10px;
+  --ctrl-btn-size: 30px;
+  --ctrl-playpause-size: 34px;
+  --ctrl-mode-size: 26px;
+  --ctrl-icon-size: 16px;
+  --ctrl-playpause-icon: 18px;
+  --seek-padding: 8px 16px 6px;
+  --controls-padding: 4px 16px 6px;
+  --volume-padding: 0;
+  --volume-btn-size: 22px;
+  --bottom-padding: 4px 16px 6px;
+
+  /* ── Radii ── */
+  --radius: 8px;
+  --radius-sm: 4px;
+  --radius-xs: 2px;
+
+  /* ── Section order ── */
+  --order-titlebar: 0;
+  --order-visualizer: 1;
+  --order-track-info: 2;
+  --order-seek: 3;
+  --order-controls: 4;
+  --order-playlist: 5;
+  --order-bottom: 9;
+
+  /* ── Visibility — hide classic display, artwork, show new layouts ── */
+  --show-display: none;
+  --show-artwork: none;
+  --show-controls-secondary: none;
+  --show-bottom: flex;
+
+  /* ── Layout modes ── */
+  --show-track-info: flex;
+  --show-seek-times: flex;
+  --show-time-display: none;
+  --show-playlist: flex;
+  --controls-volume-layout: flex;
+
+  /* ── Window constraints ── */
+  --base-width: 340;
+  --window-min-width: 300;
+  --window-min-height: 520;
+  --window-max-width: 500;
+  --window-max-height: 1200;
+}
+
+/* ─── Titlebar ─── */
+.titlebar {
+  padding: 0 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.titlebar-text {
+  font-size: 11px;
+  letter-spacing: 4px;
+  opacity: 0.7;
+}
+
+/* ─── Visualizer ─── */
+.visualizer-container {
+  border-bottom: 1px solid var(--border);
+}
+
+/* ─── Track Info ─── */
+.track-info-separate {
+  padding: 12px 16px 4px;
+}
+
+.track-name-display {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+  letter-spacing: 0.2px;
+}
+
+.track-artist-display {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-top: 1px;
+}
+
+/* ─── Seek bar ─── */
+.seek-time {
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+/* ─── Controls + Volume unified row ─── */
+.controls-volume-group {
+  padding: 4px 16px 8px;
+  border-bottom: 1px solid var(--border);
+  gap: 6px;
+}
+
+.controls-volume-group .controls {
+  padding: 0;
+  flex-direction: row;
+  gap: 0;
+}
+
+.controls-volume-group .volume-container {
+  padding: 0;
+  margin-left: auto;
+  flex: 0 1 110px;
+}
+
+/* Minimal flat button style */
+.ctrl-btn {
+  background: none;
+  border-radius: var(--radius-xs);
+}
+
+.ctrl-playpause {
+  background: none;
+  border-radius: var(--radius-xs);
+}
+
+.ctrl-playpause:hover {
+  background: var(--ctrl-hover);
+  box-shadow: none;
+}
+
+.ctrl-playpause.active {
+  background: none;
+  color: var(--accent);
+  box-shadow: none;
+}
+
+/* ─── Playlist ─── */
+.playlist-container {
+  border-top: 1px solid var(--border);
+}
+
+.playlist-header {
+  padding: 10px 16px;
+  letter-spacing: 3px;
+  color: var(--text-dim);
+  font-size: 9px;
+}
+
+.playlist-track {
+  padding: 7px 16px;
+  font-size: 13px;
+}
+
+.playlist-track.active {
+  background: rgba(138, 170, 112, 0.08);
+  color: var(--text-primary);
+}
+
+.playlist-track-name {
+  font-weight: 500;
+}
+
+.playlist-track-num {
+  font-size: 10px;
+  min-width: 20px;
+}
+
+.playlist-track-artist {
+  font-size: 11px;
+}
+
+.playlist-track-duration {
+  font-size: 10px;
+}
+
+/* ─── Bottom bar ─── */
+.bottom-bar {
+  border-top: 1px solid var(--border);
+}
+
+/* ─── Scrollbar ─── */
+::-webkit-scrollbar-thumb {
+  background: rgba(138, 170, 112, 0.12);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(138, 170, 112, 0.22);
+}

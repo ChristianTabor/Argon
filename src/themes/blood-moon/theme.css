@@ -1,0 +1,225 @@
+/* Blood Moon — Gothic crimson on absolute black */
+:root {
+  /* ── Colors ── */
+  --bg-primary: #000000;
+  --bg-secondary: #0a0002;
+  --bg-display: #000000;
+  --bg-panel: #0a0002;
+
+  --text-primary: #ffccd4;
+  --text-secondary: #cc3344;
+  --text-dim: #4a0010;
+  --text-accent: #dc143c;
+
+  --accent: #dc143c;
+  --accent-dim: rgba(220, 20, 60, 0.10);
+  --accent-glow: rgba(220, 20, 60, 0.40);
+  --accent-secondary: #8b0000;
+
+  --ctrl-bg: rgba(220, 20, 60, 0.06);
+  --ctrl-hover: rgba(220, 20, 60, 0.12);
+  --ctrl-active: rgba(220, 20, 60, 0.20);
+
+  --bar-bg: rgba(220, 20, 60, 0.10);
+  --bar-fill: linear-gradient(90deg, #5a0008, #8b0000, #dc143c);
+  --bar-handle: #dc143c;
+
+  --border: rgba(220, 20, 60, 0.08);
+  --border-accent: rgba(220, 20, 60, 0.20);
+  --shadow: 0 12px 48px rgba(30, 0, 0, 0.95);
+  --glow: 0 0 30px rgba(220, 20, 60, 0.25);
+
+  --viz-color-1: #dc143c;
+  --viz-color-2: #8b0000;
+  --viz-color-3: #cc0022;
+  --viz-bg: transparent;
+
+  --titlebar-bg: rgba(0, 0, 0, 0.8);
+  --titlebar-text: #4a0010;
+
+  --artwork-border: rgba(220, 20, 60, 0.15);
+  --artwork-shadow: 0 4px 30px rgba(220, 20, 60, 0.12);
+  --artwork-radius: 2px;
+
+  --panel-bg: #0a0002;
+  --logo-color: #4a0010;
+  --logo-accent-color: #dc143c;
+
+  /* ── Fonts — monospace for the gothic terminal feel ── */
+  --font-display: 'SF Mono', 'Menlo', 'Share Tech Mono', monospace;
+  --font-ui: 'SF Mono', 'Menlo', monospace;
+
+  /* ── Font sizes ── */
+  --fs-titlebar: 10px;
+  --fs-display-label: 7px;
+  --fs-display-value: 10px;
+  --fs-stereo: 7px;
+  --fs-marquee: 12px;
+  --fs-album: 9px;
+  --fs-time: 14px;
+  --fs-time-total: 11px;
+  --fs-bottom: 8px;
+  --fs-logo: 10px;
+
+  /* ── Sizing ── */
+  --titlebar-height: 30px;
+  --viz-height: 48px;
+  --seek-height: 3px;
+  --volume-height: 3px;
+  --handle-size: 10px;
+  --ctrl-btn-size: 30px;
+  --ctrl-playpause-size: 36px;
+  --ctrl-mode-size: 26px;
+  --ctrl-icon-size: 15px;
+  --ctrl-playpause-icon: 17px;
+  --display-padding: 4px 12px;
+  --artwork-padding: 4px 12px;
+  --seek-padding: 4px 12px 2px;
+  --controls-padding: 4px 12px 4px;
+  --volume-padding: 4px 12px 6px;
+  --bottom-padding: 4px 12px 6px;
+  --radius: 2px;
+  --radius-sm: 1px;
+  --radius-xs: 0px;
+
+  /* ── Section order ── */
+  --order-titlebar: 0;
+  --order-visualizer: 1;
+  --order-display: 2;
+  --order-artwork: 3;
+  --order-seek: 4;
+  --order-controls: 5;
+  --order-volume: 6;
+  --order-playlist: 7;
+  --order-bottom: 9;
+
+  /* ── Visibility — show classic display + artwork + playlist ── */
+  --show-display: block;
+  --show-display-top: flex;
+  --show-album: block;
+  --show-artwork: flex;
+  --show-controls-secondary: flex;
+  --show-bottom: flex;
+  --show-track-info: none;
+  --show-seek-times: none;
+  --show-time-display: flex;
+  --show-playlist: flex;
+  --controls-volume-layout: contents;
+
+  /* ── Window constraints ── */
+  --base-width: 360;
+  --window-min-width: 320;
+  --window-min-height: 680;
+  --window-max-width: 500;
+  --window-max-height: 1200;
+}
+
+/* ─── Titlebar ─── */
+.titlebar {
+  padding: 0 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.titlebar-text {
+  font-size: 10px;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  opacity: 0.4;
+}
+
+/* ─── Visualizer ─── */
+.visualizer-container {
+  border-bottom: 1px solid var(--border);
+}
+
+/* ─── Display — left-aligned mono ─── */
+.display {
+  border-bottom: 1px solid var(--border);
+}
+
+.marquee-content {
+  color: var(--text-primary);
+  letter-spacing: 0.5px;
+}
+
+/* ─── Artwork ─── */
+.artwork-container {
+  border-bottom: 1px solid var(--border);
+}
+
+/* ─── Controls ─── */
+.ctrl-btn {
+  border-radius: 0;
+}
+
+.ctrl-playpause {
+  background: rgba(220, 20, 60, 0.08);
+  border: 1px solid rgba(220, 20, 60, 0.22);
+  box-shadow: none;
+  border-radius: 0;
+}
+
+.ctrl-playpause:hover {
+  background: rgba(220, 20, 60, 0.16);
+  box-shadow: 0 0 20px rgba(220, 20, 60, 0.18);
+}
+
+/* ─── Playlist ─── */
+.playlist-container {
+  border-top: 1px solid var(--border);
+}
+
+.playlist-header {
+  padding: 8px 12px;
+  letter-spacing: 4px;
+  color: var(--text-dim);
+  font-size: 8px;
+  text-transform: uppercase;
+  font-family: var(--font-display);
+}
+
+.playlist-track {
+  padding: 6px 12px;
+  font-size: 12px;
+  font-family: var(--font-display);
+}
+
+.playlist-track.active {
+  background: rgba(220, 20, 60, 0.08);
+  color: var(--text-primary);
+}
+
+.playlist-track-name {
+  font-weight: 500;
+  letter-spacing: 0.3px;
+}
+
+.playlist-track-num {
+  font-size: 9px;
+  min-width: 18px;
+  color: var(--text-dim);
+}
+
+.playlist-track-artist {
+  font-size: 10px;
+  color: var(--text-secondary);
+}
+
+.playlist-track-duration {
+  font-size: 9px;
+  color: var(--text-dim);
+  font-family: var(--font-display);
+}
+
+/* ─── Bottom ─── */
+.bottom-bar {
+  border-top: 1px solid var(--border);
+}
+
+/* ─── Scrollbar ─── */
+::-webkit-scrollbar-thumb {
+  background: rgba(220, 20, 60, 0.10);
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(220, 20, 60, 0.20);
+}

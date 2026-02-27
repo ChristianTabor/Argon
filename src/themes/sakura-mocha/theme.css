@@ -1,0 +1,188 @@
+/* Sakura Mocha — Sakura layout + Catppuccin Mocha palette */
+:root {
+  /* ── Colors — Catppuccin Mocha ── */
+  --bg-primary: #1e1e2e;
+  --bg-secondary: #252536;
+  --bg-display: #11111b;
+  --bg-panel: #252536;
+
+  --text-primary: #cdd6f4;
+  --text-secondary: #bac2de;
+  --text-dim: #585b70;
+  --text-accent: #cba6f7;
+
+  --accent: #cba6f7;
+  --accent-dim: rgba(203, 166, 247, 0.10);
+  --accent-glow: rgba(203, 166, 247, 0.25);
+  --accent-secondary: #f38ba8;
+
+  --ctrl-bg: rgba(205, 214, 244, 0.05);
+  --ctrl-hover: rgba(203, 166, 247, 0.10);
+  --ctrl-active: rgba(203, 166, 247, 0.18);
+
+  --bar-bg: rgba(205, 214, 244, 0.07);
+  --bar-fill: linear-gradient(90deg, #cba6f7, #f38ba8);
+  --bar-handle: #cba6f7;
+
+  --border: rgba(205, 214, 244, 0.06);
+  --border-accent: rgba(203, 166, 247, 0.18);
+  --shadow: 0 8px 40px rgba(0, 0, 0, 0.55);
+  --glow: none;
+
+  --viz-color-1: #cba6f7;
+  --viz-color-2: #f38ba8;
+  --viz-color-3: #a6e3a1;
+  --viz-bg: transparent;
+
+  --titlebar-bg: rgba(17, 17, 27, 0.6);
+  --titlebar-text: #585b70;
+
+  --artwork-border: rgba(203, 166, 247, 0.12);
+  --artwork-shadow: 0 4px 24px rgba(0, 0, 0, 0.4);
+  --artwork-radius: 16px;
+  --artwork-padding: 18px 20px 6px;
+  --artwork-max-width: 140px;
+
+  --panel-bg: #252536;
+  --logo-color: #585b70;
+  --logo-accent-color: #cba6f7;
+
+  /* ── Fonts ── */
+  --font-display: 'SF Mono', 'Menlo', monospace;
+  --font-ui: -apple-system, 'SF Pro Text', 'Inter', sans-serif;
+
+  /* ── Font sizes ── */
+  --fs-titlebar: 10px;
+  --fs-bottom: 8px;
+  --fs-logo: 10px;
+
+  /* ── Sizing ── */
+  --titlebar-height: 32px;
+  --viz-height: 40px;
+  --seek-height: 3px;
+  --volume-height: 3px;
+  --handle-size: 10px;
+  --ctrl-btn-size: 32px;
+  --ctrl-playpause-size: 44px;
+  --ctrl-mode-size: 28px;
+  --ctrl-icon-size: 16px;
+  --ctrl-playpause-icon: 20px;
+  --seek-padding: 6px 18px 4px;
+  --controls-padding: 4px 16px 8px;
+  --volume-padding: 4px 16px 8px;
+  --bottom-padding: 4px 16px 8px;
+  --radius: 16px;
+  --radius-sm: 10px;
+  --radius-xs: 6px;
+
+  /* ── Section order — artwork first, viz last ── */
+  --order-titlebar: 0;
+  --order-artwork: 1;
+  --order-track-info: 2;
+  --order-seek: 3;
+  --order-controls: 4;
+  --order-volume: 5;
+  --order-visualizer: 6;
+  --order-bottom: 9;
+
+  /* ── Visibility ── */
+  --show-display: none;
+  --show-artwork: flex;
+  --show-controls-secondary: flex;
+  --show-bottom: flex;
+  --show-track-info: flex;
+  --show-seek-times: flex;
+  --show-time-display: none;
+  --show-playlist: none;
+  --controls-volume-layout: contents;
+
+  /* ── Window constraints ── */
+  --base-width: 310;
+  --window-min-width: 280;
+  --window-min-height: 490;
+  --window-max-width: 480;
+  --window-max-height: 800;
+}
+
+/* ─── Titlebar ─── */
+.titlebar {
+  padding: 0 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.titlebar-text {
+  font-size: 10px;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  opacity: 0.5;
+}
+
+/* ─── Artwork — centered ─── */
+.artwork-container {
+  background: transparent;
+}
+
+/* ─── Track info — centered ─── */
+.track-info-separate {
+  padding: 10px 16px 4px;
+  align-items: center;
+}
+
+.track-name-display {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+  letter-spacing: 0.1px;
+  text-align: center;
+  width: 100%;
+}
+
+.track-artist-display {
+  font-size: 11px;
+  color: var(--text-secondary);
+  margin-top: 2px;
+  text-align: center;
+  letter-spacing: 1px;
+  width: 100%;
+}
+
+/* ─── Seek ─── */
+.seek-time {
+  font-size: 10px;
+  color: var(--text-dim);
+  font-family: var(--font-display);
+}
+
+/* ─── Controls — centered ─── */
+.controls-main {
+  justify-content: center;
+}
+
+.ctrl-playpause {
+  background: rgba(203, 166, 247, 0.10);
+  border: 1px solid rgba(203, 166, 247, 0.20);
+  box-shadow: 0 2px 12px rgba(203, 166, 247, 0.10);
+}
+
+.ctrl-playpause:hover {
+  background: rgba(203, 166, 247, 0.16);
+  box-shadow: 0 2px 18px rgba(203, 166, 247, 0.18);
+}
+
+/* ─── Visualizer — bottom ─── */
+.visualizer-container {
+  border-top: 1px solid var(--border);
+}
+
+/* ─── Bottom ─── */
+.bottom-bar {
+  border-top: 1px solid var(--border);
+}
+
+/* ─── Scrollbar ─── */
+::-webkit-scrollbar-thumb {
+  background: rgba(203, 166, 247, 0.10);
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(203, 166, 247, 0.20);
+}

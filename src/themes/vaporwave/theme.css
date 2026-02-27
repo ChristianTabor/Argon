@@ -1,0 +1,53 @@
+/* Vaporwave — A E S T H E T I C */
+:root {
+  --bg-primary: #1a0a2e;
+  --bg-secondary: #220e3a;
+  --bg-display: #0d0518;
+  --bg-panel: #1e0c32;
+
+  --text-primary: #ff71ce;
+  --text-secondary: #b967ff;
+  --text-dim: #5a3d7a;
+  --text-accent: #01cdfe;
+
+  --accent: #ff71ce;
+  --accent-dim: rgba(255, 113, 206, 0.15);
+  --accent-glow: rgba(255, 113, 206, 0.4);
+  --accent-secondary: #01cdfe;
+
+  --ctrl-bg: rgba(185, 103, 255, 0.08);
+  --ctrl-hover: rgba(185, 103, 255, 0.15);
+  --ctrl-active: rgba(255, 113, 206, 0.2);
+
+  --bar-bg: rgba(185, 103, 255, 0.1);
+  --bar-fill: linear-gradient(90deg, #ff71ce, #01cdfe);
+  --bar-handle: #ff71ce;
+
+  --border: rgba(185, 103, 255, 0.1);
+  --border-accent: rgba(255, 113, 206, 0.25);
+  --shadow: 0 8px 32px rgba(10, 0, 20, 0.7);
+  --glow: 0 0 25px rgba(255, 113, 206, 0.4);
+
+  --viz-color-1: #ff71ce;
+  --viz-color-2: #01cdfe;
+  --viz-color-3: #b967ff;
+  --viz-bg: transparent;
+
+  --titlebar-bg: rgba(15, 5, 25, 0.5);
+  --titlebar-text: #5a3d7a;
+
+  --artwork-border: rgba(255, 113, 206, 0.2);
+  --artwork-shadow: 0 4px 30px rgba(255, 113, 206, 0.15);
+  --artwork-radius: 4px;
+
+  --panel-bg: #220e3a;
+  --logo-color: #5a3d7a;
+  --logo-accent-color: #ff71ce;
+
+  /* ── Window constraints ── */
+  --base-width: 320;
+  --window-min-width: 275;
+  --window-min-height: 520;
+  --window-max-width: 500;
+  --window-max-height: 1200;
+}

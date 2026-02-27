@@ -1,0 +1,53 @@
+/* Midnight Blue — Deep ocean with electric highlights */
+:root {
+  --bg-primary: #0a1628;
+  --bg-secondary: #0f1d32;
+  --bg-display: #060e1a;
+  --bg-panel: #0d1a2e;
+
+  --text-primary: #e0f2fe;
+  --text-secondary: #7dd3fc;
+  --text-dim: #1e3a5f;
+  --text-accent: #38bdf8;
+
+  --accent: #3b82f6;
+  --accent-dim: rgba(59, 130, 246, 0.12);
+  --accent-glow: rgba(59, 130, 246, 0.35);
+  --accent-secondary: #06b6d4;
+
+  --ctrl-bg: rgba(59, 130, 246, 0.06);
+  --ctrl-hover: rgba(59, 130, 246, 0.12);
+  --ctrl-active: rgba(59, 130, 246, 0.18);
+
+  --bar-bg: rgba(59, 130, 246, 0.1);
+  --bar-fill: linear-gradient(90deg, #3b82f6, #06b6d4);
+  --bar-handle: #38bdf8;
+
+  --border: rgba(59, 130, 246, 0.08);
+  --border-accent: rgba(59, 130, 246, 0.2);
+  --shadow: 0 8px 32px rgba(0, 5, 15, 0.6);
+  --glow: 0 0 20px rgba(59, 130, 246, 0.35);
+
+  --viz-color-1: #3b82f6;
+  --viz-color-2: #06b6d4;
+  --viz-color-3: #60a5fa;
+  --viz-bg: transparent;
+
+  --titlebar-bg: rgba(5, 10, 20, 0.5);
+  --titlebar-text: #1e3a5f;
+
+  --artwork-border: rgba(59, 130, 246, 0.15);
+  --artwork-shadow: 0 4px 30px rgba(59, 130, 246, 0.1);
+  --artwork-radius: 8px;
+
+  --panel-bg: #0f1d32;
+  --logo-color: #1e3a5f;
+  --logo-accent-color: #3b82f6;
+
+  /* ── Window constraints ── */
+  --base-width: 320;
+  --window-min-width: 275;
+  --window-min-height: 520;
+  --window-max-width: 500;
+  --window-max-height: 1200;
+}

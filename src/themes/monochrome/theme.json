@@ -1,0 +1,8 @@
+{
+  "name": "Monochrome",
+  "author": "WinAMP",
+  "version": "1.0.0",
+  "category": "Modern",
+  "description": "Pure grayscale elegance. No color, no distractions — just clean design.",
+  "preview": ["#141414", "#e0e0e0", "#888888", "#0a0a0a"]
+}

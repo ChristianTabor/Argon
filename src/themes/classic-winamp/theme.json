@@ -1,0 +1,8 @@
+{
+  "name": "Classic Winamp",
+  "author": "WinAMP",
+  "version": "1.0.0",
+  "category": "Classic",
+  "description": "The iconic green-on-black Winamp look. Llama tested, llama approved.",
+  "preview": ["#1a1a2e", "#00ff41", "#00d4aa", "#0a0a12"]
+}

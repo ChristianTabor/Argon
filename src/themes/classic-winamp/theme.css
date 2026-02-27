@@ -1,0 +1,52 @@
+/* Classic Winamp — The OG green phosphor terminal aesthetic */
+:root {
+  --bg-primary: #1a1a2e;
+  --bg-secondary: #16213e;
+  --bg-display: #0a0a12;
+  --bg-panel: #12121e;
+
+  --text-primary: #00ff41;
+  --text-secondary: #8892b0;
+  --text-dim: #4a5568;
+  --text-accent: #00ff41;
+
+  --accent: #00ff41;
+  --accent-dim: rgba(0, 255, 65, 0.15);
+  --accent-glow: rgba(0, 255, 65, 0.4);
+  --accent-secondary: #00d4aa;
+
+  --ctrl-bg: rgba(255, 255, 255, 0.04);
+  --ctrl-hover: rgba(255, 255, 255, 0.08);
+  --ctrl-active: rgba(0, 255, 65, 0.15);
+
+  --bar-bg: rgba(255, 255, 255, 0.06);
+  --bar-fill: var(--accent);
+  --bar-handle: var(--accent);
+
+  --border: rgba(255, 255, 255, 0.06);
+  --border-accent: rgba(0, 255, 65, 0.2);
+  --shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+  --glow: 0 0 20px var(--accent-glow);
+
+  --viz-color-1: #00ff41;
+  --viz-color-2: #00d4aa;
+  --viz-color-3: #00a8ff;
+
+  --titlebar-bg: rgba(0, 0, 0, 0.3);
+  --titlebar-text: var(--text-secondary);
+
+  --artwork-border: rgba(0, 255, 65, 0.2);
+  --artwork-shadow: 0 4px 24px rgba(0, 0, 0, 0.4);
+  --artwork-radius: 6px;
+
+  --panel-bg: #16213e;
+  --logo-color: #4a5568;
+  --logo-accent-color: #00ff41;
+
+  /* ── Window constraints ── */
+  --base-width: 320;
+  --window-min-width: 275;
+  --window-min-height: 520;
+  --window-max-width: 500;
+  --window-max-height: 1200;
+}

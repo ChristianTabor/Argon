@@ -1,0 +1,53 @@
+/* Rosé Pine — Soho vibes, muted warmth */
+:root {
+  --bg-primary: #191724;
+  --bg-secondary: #1f1d2e;
+  --bg-display: #13111e;
+  --bg-panel: #1f1d2e;
+
+  --text-primary: #e0def4;
+  --text-secondary: #908caa;
+  --text-dim: #524f67;
+  --text-accent: #ebbcba;
+
+  --accent: #ebbcba;
+  --accent-dim: rgba(235, 188, 186, 0.1);
+  --accent-glow: rgba(235, 188, 186, 0.25);
+  --accent-secondary: #31748f;
+
+  --ctrl-bg: rgba(144, 140, 170, 0.06);
+  --ctrl-hover: rgba(144, 140, 170, 0.1);
+  --ctrl-active: rgba(235, 188, 186, 0.12);
+
+  --bar-bg: rgba(144, 140, 170, 0.08);
+  --bar-fill: linear-gradient(90deg, #ebbcba, #eb6f92);
+  --bar-handle: #ebbcba;
+
+  --border: rgba(144, 140, 170, 0.08);
+  --border-accent: rgba(235, 188, 186, 0.15);
+  --shadow: 0 8px 32px rgba(10, 8, 18, 0.6);
+  --glow: 0 0 20px rgba(235, 188, 186, 0.2);
+
+  --viz-color-1: #eb6f92;
+  --viz-color-2: #ebbcba;
+  --viz-color-3: #31748f;
+  --viz-bg: transparent;
+
+  --titlebar-bg: rgba(15, 13, 22, 0.5);
+  --titlebar-text: #524f67;
+
+  --artwork-border: rgba(235, 188, 186, 0.12);
+  --artwork-shadow: 0 4px 24px rgba(10, 8, 18, 0.4);
+  --artwork-radius: 10px;
+
+  --panel-bg: #1f1d2e;
+  --logo-color: #524f67;
+  --logo-accent-color: #ebbcba;
+
+  /* ── Window constraints ── */
+  --base-width: 320;
+  --window-min-width: 275;
+  --window-min-height: 520;
+  --window-max-width: 500;
+  --window-max-height: 1200;
+}

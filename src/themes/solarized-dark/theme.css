@@ -1,0 +1,53 @@
+/* Solarized Dark — Precision-engineered by Ethan Schoonover */
+:root {
+  --bg-primary: #002b36;
+  --bg-secondary: #073642;
+  --bg-display: #001e26;
+  --bg-panel: #073642;
+
+  --text-primary: #eee8d5;
+  --text-secondary: #93a1a1;
+  --text-dim: #586e75;
+  --text-accent: #268bd2;
+
+  --accent: #268bd2;
+  --accent-dim: rgba(38, 139, 210, 0.12);
+  --accent-glow: rgba(38, 139, 210, 0.3);
+  --accent-secondary: #2aa198;
+
+  --ctrl-bg: rgba(147, 161, 161, 0.06);
+  --ctrl-hover: rgba(147, 161, 161, 0.1);
+  --ctrl-active: rgba(38, 139, 210, 0.15);
+
+  --bar-bg: rgba(147, 161, 161, 0.08);
+  --bar-fill: linear-gradient(90deg, #268bd2, #2aa198);
+  --bar-handle: #268bd2;
+
+  --border: rgba(147, 161, 161, 0.08);
+  --border-accent: rgba(38, 139, 210, 0.2);
+  --shadow: 0 8px 32px rgba(0, 15, 20, 0.6);
+  --glow: 0 0 18px rgba(38, 139, 210, 0.3);
+
+  --viz-color-1: #268bd2;
+  --viz-color-2: #2aa198;
+  --viz-color-3: #b58900;
+  --viz-bg: transparent;
+
+  --titlebar-bg: rgba(0, 20, 28, 0.5);
+  --titlebar-text: #586e75;
+
+  --artwork-border: rgba(38, 139, 210, 0.15);
+  --artwork-shadow: 0 4px 24px rgba(0, 10, 15, 0.4);
+  --artwork-radius: 6px;
+
+  --panel-bg: #073642;
+  --logo-color: #586e75;
+  --logo-accent-color: #268bd2;
+
+  /* ── Window constraints ── */
+  --base-width: 320;
+  --window-min-width: 275;
+  --window-min-height: 520;
+  --window-max-width: 500;
+  --window-max-height: 1200;
+}

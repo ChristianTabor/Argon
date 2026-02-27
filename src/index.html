@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; script-src 'self';">
+  <title>Argon</title>
+  <link rel="stylesheet" href="styles/base.css">
+  <style id="theme-styles"></style>
+</head>
+<body>
+  <div id="player" class="player">
+    <!-- Title Bar -->
+    <div class="titlebar" id="titlebar">
+      <div class="titlebar-drag"></div>
+      <span class="titlebar-text">Argon</span>
+      <div class="titlebar-buttons">
+        <button class="titlebar-btn btn-mini" id="btn-mini" title="Mini Mode (Cmd+Shift+M)">
+          <svg width="10" height="10" viewBox="0 0 10 10"><rect x="1" y="3.5" width="8" height="3" rx="0.8" stroke="currentColor" stroke-width="1.2" fill="none"/></svg>
+        </button>
+        <button class="titlebar-btn btn-snap" id="btn-snap" title="Snap to Bottom Right">
+          <svg width="10" height="10" viewBox="0 0 10 10"><path d="M1 1h3M1 1v3" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round"/><rect x="5" y="5" width="4.5" height="4.5" rx="0.8" fill="currentColor"/></svg>
+        </button>
+        <button class="titlebar-btn btn-lock" id="btn-lock" title="Lock Position">
+          <svg width="10" height="10" viewBox="0 0 10 10"><rect x="2" y="4" width="6" height="6" rx="1" fill="currentColor"/><path d="M3.5 4V3a1.5 1.5 0 013 0v1" stroke="currentColor" stroke-width="1.2" fill="none" stroke-linecap="round"/></svg>
+        </button>
+        <button class="titlebar-btn btn-pin" id="btn-pin" title="Always on Top">
+          <svg width="10" height="10" viewBox="0 0 10 10"><path d="M5 0L6.5 3.5L10 5L6.5 6.5L5 10L3.5 6.5L0 5L3.5 3.5Z" fill="currentColor"/></svg>
+        </button>
+        <button class="titlebar-btn btn-min" id="btn-minimize" title="Minimize">
+          <svg width="10" height="10" viewBox="0 0 10 10"><rect x="1" y="4.5" width="8" height="1.5" rx="0.5" fill="currentColor"/></svg>
+        </button>
+        <button class="titlebar-btn btn-close" id="btn-close" title="Close">
+          <svg width="10" height="10" viewBox="0 0 10 10"><path d="M1.5 0.5L5 4L8.5 0.5L9.5 1.5L6 5L9.5 8.5L8.5 9.5L5 6L1.5 9.5L0.5 8.5L4 5L0.5 1.5Z" fill="currentColor"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <!-- Mini Player (visible only in mini mode) -->
+    <div class="mini-player" id="mini-player">
+      <button class="mini-ctrl" id="mini-prev" title="Previous">
+        <svg width="14" height="14" viewBox="0 0 20 20"><rect x="2" y="4" width="2.5" height="12" rx="0.75" fill="currentColor"/><path d="M15 4L7 10L15 16V4Z" fill="currentColor"/></svg>
+      </button>
+      <button class="mini-ctrl mini-playpause" id="mini-playpause" title="Play/Pause">
+        <svg width="16" height="16" viewBox="0 0 24 24" class="mini-icon-play"><path d="M7 4L19 12L7 20V4Z" fill="currentColor"/></svg>
+        <svg width="16" height="16" viewBox="0 0 24 24" class="mini-icon-pause" style="display:none"><rect x="5" y="4" width="4.5" height="16" rx="1.2" fill="currentColor"/><rect x="14.5" y="4" width="4.5" height="16" rx="1.2" fill="currentColor"/></svg>
+      </button>
+      <button class="mini-ctrl" id="mini-next" title="Next">
+        <svg width="14" height="14" viewBox="0 0 20 20"><path d="M5 4L13 10L5 16V4Z" fill="currentColor"/><rect x="15.5" y="4" width="2.5" height="12" rx="0.75" fill="currentColor"/></svg>
+      </button>
+      <div class="mini-track-info">
+        <span class="mini-track" id="mini-track">Not Playing</span>
+        <span class="mini-artist" id="mini-artist"></span>
+      </div>
+      <button class="mini-ctrl mini-expand" id="mini-expand" title="Exit Mini Mode">
+        <svg width="12" height="12" viewBox="0 0 10 10"><path d="M1 4V1h3M9 6v3H6" stroke="currentColor" stroke-width="1.3" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+    </div>
+
+    <!-- Visualizer -->
+    <div class="visualizer-container">
+      <canvas id="visualizer" class="visualizer"></canvas>
+      <div class="visualizer-overlay" id="viz-mode-toggle" title="Click to change visualizer mode"></div>
+    </div>
+
+    <!-- Track Info Display (classic mode) -->
+    <div class="display">
+      <div class="display-inner">
+        <div class="display-top">
+          <div class="bitrate-display">
+            <span class="display-label">KBPS</span>
+            <span class="display-value" id="display-kbps">256</span>
+          </div>
+          <div class="freq-display">
+            <span class="display-label">KHZ</span>
+            <span class="display-value" id="display-khz">44</span>
+          </div>
+          <div class="stereo-display">
+            <span class="stereo-indicator active">STEREO</span>
+          </div>
+        </div>
+        <div class="track-marquee">
+          <div class="marquee-content" id="marquee-text">
+            Argon — Open Apple Music to begin
+          </div>
+        </div>
+        <div class="album-display" id="album-display"></div>
+        <div class="time-display" id="time-display">
+          <span class="time-current" id="time-current">0:00</span>
+          <span class="time-separator">/</span>
+          <span class="time-total" id="time-total">0:00</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Track Info Separate (alternate layout — hidden by default, themes enable it) -->
+    <div class="track-info-separate" id="track-info-separate">
+      <div class="track-name-display" id="track-name-display"></div>
+      <div class="track-artist-display" id="track-artist-display"></div>
+    </div>
+
+    <!-- Album Art -->
+    <div class="artwork-container">
+      <div class="artwork" id="artwork">
+        <div class="artwork-placeholder">
+          <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
+            <circle cx="24" cy="24" r="20" stroke="currentColor" stroke-width="1.5" opacity="0.3"/>
+            <circle cx="24" cy="24" r="8" stroke="currentColor" stroke-width="1.5" opacity="0.3"/>
+            <circle cx="24" cy="24" r="2" fill="currentColor" opacity="0.3"/>
+          </svg>
+        </div>
+        <img id="artwork-img" src="" alt="" style="display:none">
+      </div>
+    </div>
+
+    <!-- Seek Bar (with optional inline times for alternate layouts) -->
+    <div class="seek-container">
+      <span class="seek-time seek-time-left" id="seek-time-left">0:00</span>
+      <div class="seek-bar" id="seek-bar">
+        <div class="seek-fill" id="seek-fill"></div>
+        <div class="seek-handle" id="seek-handle"></div>
+      </div>
+      <span class="seek-time seek-time-right" id="seek-time-right">0:00</span>
+    </div>
+
+    <!-- Controls + Volume Group (display:contents by default, themes can make it flex-row) -->
+    <div class="controls-volume-group">
+      <!-- Controls -->
+      <div class="controls">
+        <div class="controls-main">
+          <button class="ctrl-btn" id="btn-prev" title="Previous">
+            <svg width="20" height="20" viewBox="0 0 20 20"><rect x="2" y="4" width="2.5" height="12" rx="0.75" fill="currentColor"/><path d="M15 4L7 10L15 16V4Z" fill="currentColor"/></svg>
+          </button>
+          <button class="ctrl-btn ctrl-playpause" id="btn-playpause" title="Play/Pause">
+            <svg width="24" height="24" viewBox="0 0 24 24" id="icon-play"><path d="M7 4L19 12L7 20V4Z" fill="currentColor"/></svg>
+            <svg width="24" height="24" viewBox="0 0 24 24" id="icon-pause" style="display:none"><rect x="5" y="4" width="4.5" height="16" rx="1.2" fill="currentColor"/><rect x="14.5" y="4" width="4.5" height="16" rx="1.2" fill="currentColor"/></svg>
+          </button>
+          <button class="ctrl-btn" id="btn-next" title="Next">
+            <svg width="20" height="20" viewBox="0 0 20 20"><path d="M5 4L13 10L5 16V4Z" fill="currentColor"/><rect x="15.5" y="4" width="2.5" height="12" rx="0.75" fill="currentColor"/></svg>
+          </button>
+        </div>
+        <div class="controls-secondary">
+          <button class="ctrl-btn ctrl-mode" id="btn-shuffle" title="Shuffle">
+            <svg viewBox="0 0 16 16"><path d="M2 4h3l2 4-2 4H2" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/><path d="M2 4h3l6 8h3" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/><path d="M11 4h3" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round"/><path d="M13 2.5l1.5 1.5-1.5 1.5" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/><path d="M13 10.5l1.5 1.5-1.5 1.5" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+          <button class="ctrl-btn ctrl-mode" id="btn-repeat" title="Repeat">
+            <svg viewBox="0 0 16 16"><path d="M3 5h10l-2-2" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/><path d="M13 11H3l2 2" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/><path d="M3 5v3" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round"/><path d="M13 8v3" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round"/></svg>
+            <span class="repeat-badge" id="repeat-badge" style="display:none">1</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Volume -->
+      <div class="volume-container">
+        <button class="ctrl-btn ctrl-small" id="btn-mute" title="Mute">
+          <svg width="16" height="16" viewBox="0 0 16 16" id="icon-vol">
+            <path d="M2 6h2.5L8 3v10L4.5 10H2V6Z" fill="currentColor"/>
+            <path d="M10.5 5.5c1 1 1 3.5 0 5" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" id="vol-wave1"/>
+            <path d="M12.5 3.5c2 2.5 2 6.5 0 9" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" id="vol-wave2"/>
+          </svg>
+        </button>
+        <div class="volume-bar" id="volume-bar">
+          <div class="volume-fill" id="volume-fill"></div>
+          <div class="volume-handle" id="volume-handle"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Playlist / Queue Viewer (hidden by default, themes enable it) -->
+    <div class="playlist-container" id="playlist-container">
+      <div class="playlist-header">
+        <svg class="playlist-icon" width="14" height="14" viewBox="0 0 14 14"><path d="M2 3h10M2 7h7M2 11h10" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><path d="M11 6v6M9 9h4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" opacity="0.5"/></svg>
+        <span class="playlist-title" id="playlist-title">PLAYLIST</span>
+        <span class="playlist-count" id="playlist-count"></span>
+        <button class="playlist-snap-btn" id="btn-playlist-snap" title="Jump to current track">
+          <svg width="12" height="12" viewBox="0 0 12 12"><circle cx="6" cy="6" r="2" fill="currentColor"/><circle cx="6" cy="6" r="5" stroke="currentColor" stroke-width="1.2" fill="none"/></svg>
+        </button>
+      </div>
+      <div class="playlist-tracks" id="playlist-tracks"></div>
+    </div>
+
+    <!-- Theme Selector Panel (slide-up) -->
+    <div class="theme-panel" id="theme-panel">
+      <div class="theme-panel-header">
+        <h3>Themes</h3>
+        <div class="theme-panel-actions">
+          <button class="theme-action-btn" id="btn-install-theme" title="Install Theme (.zip)">
+            <svg width="14" height="14" viewBox="0 0 14 14"><path d="M7 1v8M3.5 5.5L7 9l3.5-3.5" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/><path d="M2 11h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+            Install
+          </button>
+          <button class="theme-action-btn" id="btn-open-themes-folder" title="Open Themes Folder">
+            <svg width="14" height="14" viewBox="0 0 14 14"><path d="M1 3v8.5a1 1 0 001 1h10a1 1 0 001-1V5a1 1 0 00-1-1H7L5.5 2.5H2A1 1 0 001 3.5V3z" stroke="currentColor" stroke-width="1.2" fill="none"/></svg>
+          </button>
+          <button class="theme-panel-close" id="btn-close-themes">
+            <svg width="12" height="12" viewBox="0 0 12 12"><path d="M2 2l8 8M10 2l-8 8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+          </button>
+        </div>
+      </div>
+      <div class="theme-tabs" id="theme-tabs"></div>
+      <div class="theme-list" id="theme-list"></div>
+    </div>
+
+    <!-- Lyrics Panel (slide-up overlay) -->
+    <div class="lyrics-panel" id="lyrics-panel">
+      <div class="lyrics-panel-header">
+        <h3>Lyrics</h3>
+        <button class="lyrics-panel-close" id="btn-close-lyrics">
+          <svg width="12" height="12" viewBox="0 0 12 12"><path d="M2 2l8 8M10 2l-8 8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+        </button>
+      </div>
+      <div class="lyrics-content" id="lyrics-content">
+        <p class="lyrics-placeholder">Press play to see lyrics</p>
+      </div>
+    </div>
+
+    <!-- Equalizer Panel (slide-up overlay) -->
+    <div class="eq-panel" id="eq-panel">
+      <div class="eq-panel-header">
+        <h3>Equalizer</h3>
+        <div class="eq-panel-actions">
+          <select class="eq-preset-select" id="eq-preset-select">
+            <option value="flat">Flat</option>
+            <option value="rock">Rock</option>
+            <option value="pop">Pop</option>
+            <option value="jazz">Jazz</option>
+            <option value="classical">Classical</option>
+            <option value="bass-boost">Bass Boost</option>
+            <option value="treble-boost">Treble Boost</option>
+            <option value="vocal">Vocal</option>
+            <option value="electronic">Electronic</option>
+            <option value="acoustic">Acoustic</option>
+          </select>
+          <button class="eq-panel-close" id="btn-close-eq">
+            <svg width="12" height="12" viewBox="0 0 12 12"><path d="M2 2l8 8M10 2l-8 8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+          </button>
+        </div>
+      </div>
+      <div class="eq-sliders" id="eq-sliders"></div>
+      <div class="eq-labels" id="eq-labels"></div>
+    </div>
+
+    <!-- Bottom Bar -->
+    <div class="bottom-bar">
+      <button class="bottom-btn" id="btn-themes" title="Themes">
+        <svg width="14" height="14" viewBox="0 0 14 14"><circle cx="4" cy="5" r="2" stroke="currentColor" stroke-width="1.2" fill="none"/><circle cx="10" cy="5" r="2" stroke="currentColor" stroke-width="1.2" fill="none"/><circle cx="7" cy="10" r="2" stroke="currentColor" stroke-width="1.2" fill="none"/></svg>
+        <span>Themes</span>
+      </button>
+      <button class="bottom-btn" id="btn-lyrics" title="Lyrics (L)">
+        <svg width="14" height="14" viewBox="0 0 14 14"><path d="M3 3h8M3 6h6M3 9h7M3 12h4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
+        <span>Lyrics</span>
+      </button>
+      <div class="transparency-control" id="transparency-control" title="Background Transparency">
+        <svg class="transparency-icon" width="12" height="12" viewBox="0 0 12 12"><rect x="0" y="0" width="6" height="6" fill="currentColor" opacity="0.25"/><rect x="6" y="0" width="6" height="6" fill="currentColor" opacity="0.5"/><rect x="0" y="6" width="6" height="6" fill="currentColor" opacity="0.5"/><rect x="6" y="6" width="6" height="6" fill="currentColor" opacity="0.85"/></svg>
+        <input type="range" class="transparency-slider" id="transparency-slider" min="10" max="100" value="100" step="5">
+        <button class="text-mode-btn" id="btn-text-mode" title="Toggle Light/Dark Text">
+          <svg width="12" height="12" viewBox="0 0 12 12"><circle cx="6" cy="6" r="4.5" stroke="currentColor" stroke-width="1" fill="none"/><path d="M6 1.5a4.5 4.5 0 000 9z" fill="currentColor"/></svg>
+        </button>
+      </div>
+      <div class="bottom-logo">
+        <span class="logo-text">W<span class="logo-accent">A</span></span>
+      </div>
+      <button class="bottom-btn" id="btn-eq" title="Equalizer">
+        <svg width="14" height="14" viewBox="0 0 14 14"><rect x="1.5" y="8" width="2" height="4" rx="0.5" fill="currentColor"/><rect x="4.5" y="4" width="2" height="8" rx="0.5" fill="currentColor"/><rect x="7.5" y="6" width="2" height="6" rx="0.5" fill="currentColor"/><rect x="10.5" y="2" width="2" height="10" rx="0.5" fill="currentColor"/></svg>
+        <span>EQ</span>
+      </button>
+    </div>
+  </div>
+
+  <script src="js/visualizer.js"></script>
+  <script src="js/theme-manager.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>

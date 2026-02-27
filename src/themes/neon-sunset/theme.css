@@ -1,0 +1,52 @@
+:root {
+  --bg-primary: #1a0a10;
+  --bg-secondary: #22101a;
+  --bg-display: #120610;
+  --bg-panel: #1e0c16;
+
+  --text-primary: #ffeedd;
+  --text-secondary: #cc8877;
+  --text-dim: #663344;
+  --text-accent: #ff6b35;
+
+  --accent: #ff6b35;
+  --accent-dim: rgba(255, 107, 53, 0.12);
+  --accent-glow: rgba(255, 107, 53, 0.35);
+  --accent-secondary: #ff3864;
+
+  --ctrl-bg: rgba(255, 107, 53, 0.06);
+  --ctrl-hover: rgba(255, 107, 53, 0.12);
+  --ctrl-active: rgba(255, 56, 100, 0.15);
+
+  --bar-bg: rgba(255, 107, 53, 0.10);
+  --bar-fill: linear-gradient(90deg, #ff3864, #ff6b35, #ffb347);
+  --bar-handle: #ff6b35;
+
+  --border: rgba(255, 107, 53, 0.08);
+  --border-accent: rgba(255, 56, 100, 0.2);
+  --shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
+  --glow: 0 0 20px rgba(255, 107, 53, 0.3);
+
+  --viz-color-1: #ff6b35;
+  --viz-color-2: #ff3864;
+  --viz-color-3: #ffb347;
+  --viz-bg: transparent;
+
+  --titlebar-bg: rgba(0, 0, 0, 0.3);
+  --titlebar-text: #663344;
+
+  --artwork-border: rgba(255, 56, 100, 0.15);
+  --artwork-shadow: 0 4px 24px rgba(255, 56, 100, 0.15);
+  --artwork-radius: 6px;
+
+  --panel-bg: #22101a;
+  --logo-color: #663344;
+  --logo-accent-color: #ff6b35;
+
+  /* ── Window constraints ── */
+  --base-width: 320;
+  --window-min-width: 275;
+  --window-min-height: 520;
+  --window-max-width: 500;
+  --window-max-height: 1200;
+}

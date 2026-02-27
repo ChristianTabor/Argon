@@ -1,0 +1,52 @@
+:root {
+  --bg-primary: #141414;
+  --bg-secondary: #1c1c1c;
+  --bg-display: #0a0a0a;
+  --bg-panel: #1a1a1a;
+
+  --text-primary: #e0e0e0;
+  --text-secondary: #888888;
+  --text-dim: #444444;
+  --text-accent: #d0d0d0;
+
+  --accent: #d0d0d0;
+  --accent-dim: rgba(208, 208, 208, 0.08);
+  --accent-glow: rgba(208, 208, 208, 0.15);
+  --accent-secondary: #aaaaaa;
+
+  --ctrl-bg: rgba(255, 255, 255, 0.04);
+  --ctrl-hover: rgba(255, 255, 255, 0.08);
+  --ctrl-active: rgba(255, 255, 255, 0.12);
+
+  --bar-bg: rgba(255, 255, 255, 0.06);
+  --bar-fill: #aaaaaa;
+  --bar-handle: #d0d0d0;
+
+  --border: rgba(255, 255, 255, 0.06);
+  --border-accent: rgba(255, 255, 255, 0.12);
+  --shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
+  --glow: none;
+
+  --viz-color-1: #d0d0d0;
+  --viz-color-2: #888888;
+  --viz-color-3: #555555;
+  --viz-bg: transparent;
+
+  --titlebar-bg: rgba(0, 0, 0, 0.3);
+  --titlebar-text: #555555;
+
+  --artwork-border: rgba(255, 255, 255, 0.06);
+  --artwork-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+  --artwork-radius: 4px;
+
+  --panel-bg: #1c1c1c;
+  --logo-color: #444444;
+  --logo-accent-color: #d0d0d0;
+
+  /* ── Window constraints ── */
+  --base-width: 320;
+  --window-min-width: 275;
+  --window-min-height: 520;
+  --window-max-width: 500;
+  --window-max-height: 1200;
+}

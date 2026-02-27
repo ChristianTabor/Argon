@@ -1,0 +1,240 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <!-- Background — deep, cool-warm dark -->
+    <linearGradient id="bg" x1="0" y1="0" x2="0.2" y2="1">
+      <stop offset="0%" stop-color="#232028"/>
+      <stop offset="100%" stop-color="#141318"/>
+    </linearGradient>
+
+    <!-- Glass panel fill — frosted translucency -->
+    <linearGradient id="glass" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="rgba(255,255,255,0.07)"/>
+      <stop offset="100%" stop-color="rgba(255,255,255,0.02)"/>
+    </linearGradient>
+
+    <!-- Glass panel fill — display inset (darker glass) -->
+    <linearGradient id="glass-inset" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="rgba(0,0,0,0.3)"/>
+      <stop offset="100%" stop-color="rgba(0,0,0,0.15)"/>
+    </linearGradient>
+
+    <!-- Specular highlight — top-left light source -->
+    <linearGradient id="specular" x1="0" y1="0" x2="0.5" y2="1">
+      <stop offset="0%" stop-color="rgba(255,255,255,0.12)"/>
+      <stop offset="40%" stop-color="rgba(255,255,255,0.02)"/>
+      <stop offset="100%" stop-color="rgba(255,255,255,0)"/>
+    </linearGradient>
+
+    <!-- Panel top-edge specular -->
+    <linearGradient id="edge-light" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="rgba(255,255,255,0)"/>
+      <stop offset="20%" stop-color="rgba(255,255,255,0.15)"/>
+      <stop offset="50%" stop-color="rgba(255,255,255,0.2)"/>
+      <stop offset="80%" stop-color="rgba(255,255,255,0.1)"/>
+      <stop offset="100%" stop-color="rgba(255,255,255,0)"/>
+    </linearGradient>
+
+    <!-- Champagne accent -->
+    <linearGradient id="champagne" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#dcc9a3"/>
+      <stop offset="100%" stop-color="#c4a87a"/>
+    </linearGradient>
+
+    <!-- Bar gradient — warm gold, bottom to top -->
+    <linearGradient id="bar-grad" x1="0" y1="1" x2="0" y2="0">
+      <stop offset="0%" stop-color="#b89b6a" stop-opacity="0.15"/>
+      <stop offset="100%" stop-color="#dcc9a3" stop-opacity="0.75"/>
+    </linearGradient>
+
+    <!-- Seek fill -->
+    <linearGradient id="seek-fill" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#cbb48e"/>
+      <stop offset="100%" stop-color="#cbb48e" stop-opacity="0.12"/>
+    </linearGradient>
+
+    <!-- Overall specular wash from top -->
+    <linearGradient id="top-wash" x1="0.5" y1="0" x2="0.5" y2="0.5">
+      <stop offset="0%" stop-color="rgba(255,255,255,0.06)"/>
+      <stop offset="100%" stop-color="rgba(255,255,255,0)"/>
+    </linearGradient>
+
+    <!-- Ambient light bloom -->
+    <radialGradient id="bloom" cx="0.45" cy="0.2" r="0.6">
+      <stop offset="0%" stop-color="rgba(220,201,163,0.04)"/>
+      <stop offset="100%" stop-color="rgba(220,201,163,0)"/>
+    </radialGradient>
+
+    <!-- Gentle play button glow -->
+    <filter id="play-glow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur in="SourceGraphic" stdDeviation="5" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+
+    <!-- Glass blur for panels -->
+    <filter id="glass-blur" x="-5%" y="-5%" width="110%" height="110%">
+      <feGaussianBlur in="SourceGraphic" stdDeviation="1.5"/>
+    </filter>
+
+    <!-- macOS icon mask -->
+    <clipPath id="icon-mask">
+      <rect x="0" y="0" width="1024" height="1024" rx="228" ry="228"/>
+    </clipPath>
+  </defs>
+
+  <g clip-path="url(#icon-mask)">
+    <!-- Background -->
+    <rect width="1024" height="1024" fill="url(#bg)"/>
+    <rect width="1024" height="1024" fill="url(#bloom)"/>
+
+    <!-- Global specular wash — light from above -->
+    <rect width="1024" height="1024" fill="url(#top-wash)"/>
+
+    <!-- ═══ PANEL 1: Visualizer ═══ -->
+    <rect x="172" y="152" width="680" height="170" rx="12" fill="url(#glass)"/>
+    <rect x="172" y="152" width="680" height="170" rx="12" fill="url(#specular)"/>
+    <!-- Top edge catch -->
+    <rect x="192" y="152" width="640" height="1" rx="0.5" fill="url(#edge-light)"/>
+    <!-- Bottom inner shadow -->
+    <rect x="172" y="310" width="680" height="12" rx="0 0 12 12" fill="rgba(0,0,0,0.04)"/>
+    <!-- Panel border — glass edge -->
+    <rect x="172" y="152" width="680" height="170" rx="12" fill="none" stroke="rgba(255,255,255,0.06)" stroke-width="0.5"/>
+
+    <!-- Elegant thin bars -->
+    <g opacity="0.85">
+      <rect x="212" y="248" width="10" height="40" rx="2" fill="url(#bar-grad)"/>
+      <rect x="234" y="224" width="10" height="64" rx="2" fill="url(#bar-grad)"/>
+      <rect x="256" y="204" width="10" height="84" rx="2" fill="url(#bar-grad)"/>
+      <rect x="278" y="218" width="10" height="70" rx="2" fill="url(#bar-grad)"/>
+      <rect x="300" y="238" width="10" height="50" rx="2" fill="url(#bar-grad)"/>
+      <rect x="322" y="210" width="10" height="78" rx="2" fill="url(#bar-grad)"/>
+      <rect x="344" y="192" width="10" height="96" rx="2" fill="url(#bar-grad)"/>
+      <rect x="366" y="212" width="10" height="76" rx="2" fill="url(#bar-grad)"/>
+      <rect x="388" y="232" width="10" height="56" rx="2" fill="url(#bar-grad)"/>
+      <rect x="410" y="198" width="10" height="90" rx="2" fill="url(#bar-grad)"/>
+      <rect x="432" y="182" width="10" height="106" rx="2" fill="url(#bar-grad)"/>
+      <rect x="454" y="196" width="10" height="92" rx="2" fill="url(#bar-grad)"/>
+      <rect x="476" y="216" width="10" height="72" rx="2" fill="url(#bar-grad)"/>
+      <rect x="498" y="188" width="10" height="100" rx="2" fill="url(#bar-grad)"/>
+      <rect x="520" y="174" width="10" height="114" rx="2" fill="url(#bar-grad)"/>
+      <rect x="542" y="200" width="10" height="88" rx="2" fill="url(#bar-grad)"/>
+      <rect x="564" y="220" width="10" height="68" rx="2" fill="url(#bar-grad)"/>
+      <rect x="586" y="236" width="10" height="52" rx="2" fill="url(#bar-grad)"/>
+      <rect x="608" y="214" width="10" height="74" rx="2" fill="url(#bar-grad)"/>
+      <rect x="630" y="194" width="10" height="94" rx="2" fill="url(#bar-grad)"/>
+      <rect x="652" y="208" width="10" height="80" rx="2" fill="url(#bar-grad)"/>
+      <rect x="674" y="228" width="10" height="60" rx="2" fill="url(#bar-grad)"/>
+      <rect x="696" y="240" width="10" height="48" rx="2" fill="url(#bar-grad)"/>
+      <rect x="718" y="232" width="10" height="56" rx="2" fill="url(#bar-grad)"/>
+      <rect x="740" y="248" width="10" height="40" rx="2" fill="url(#bar-grad)"/>
+      <rect x="762" y="256" width="10" height="32" rx="2" fill="url(#bar-grad)"/>
+      <rect x="784" y="262" width="10" height="26" rx="2" fill="url(#bar-grad)"/>
+      <rect x="806" y="268" width="10" height="20" rx="2" fill="url(#bar-grad)"/>
+    </g>
+
+    <!-- Gap between panels — no divider line, just spacing -->
+
+    <!-- ═══ PANEL 2: Display ═══ -->
+    <rect x="172" y="334" width="680" height="118" rx="12" fill="url(#glass-inset)"/>
+    <rect x="172" y="334" width="680" height="118" rx="12" fill="url(#specular)" opacity="0.5"/>
+    <!-- Top edge catch -->
+    <rect x="192" y="334" width="640" height="1" rx="0.5" fill="url(#edge-light)" opacity="0.5"/>
+    <!-- Glass border -->
+    <rect x="172" y="334" width="680" height="118" rx="12" fill="none" stroke="rgba(255,255,255,0.04)" stroke-width="0.5"/>
+    <!-- Inner bottom highlight (glass refraction) -->
+    <rect x="192" y="445" width="640" height="1" rx="0.5" fill="rgba(255,255,255,0.02)"/>
+
+    <!-- Display text -->
+    <g font-family="'SF Mono', 'Menlo', 'Courier', monospace">
+      <text x="212" y="376" fill="#cbb48e" opacity="0.5" font-size="16" font-weight="500">256</text>
+      <text x="266" y="376" fill="#cbb48e" opacity="0.25" font-size="9" font-weight="600" letter-spacing="1">KBPS</text>
+      <text x="326" y="376" fill="#cbb48e" opacity="0.5" font-size="16" font-weight="500">44</text>
+      <text x="358" y="376" fill="#cbb48e" opacity="0.25" font-size="9" font-weight="600" letter-spacing="1">KHZ</text>
+      <text x="428" y="376" fill="#cbb48e" opacity="0.2" font-size="9" font-weight="700" letter-spacing="2.5">STEREO</text>
+      <text x="792" y="378" fill="#cbb48e" opacity="0.45" font-size="20" font-weight="500" text-anchor="end">3:42</text>
+      <text x="212" y="414" fill="#cbb48e" opacity="0.3" font-size="13" letter-spacing="0.5" font-weight="400">Now Playing</text>
+    </g>
+
+    <!-- Seek bar -->
+    <rect x="212" y="430" width="600" height="3" rx="1.5" fill="rgba(255,255,255,0.04)"/>
+    <rect x="212" y="430" width="368" height="3" rx="1.5" fill="url(#seek-fill)"/>
+    <circle cx="580" cy="431.5" r="5" fill="#cbb48e" opacity="0.45"/>
+    <!-- Seek handle specular dot -->
+    <circle cx="579" cy="430" r="1.5" fill="rgba(255,255,255,0.3)"/>
+
+    <!-- ═══ PANEL 3: Album Art ═══ -->
+    <rect x="172" y="464" width="680" height="310" rx="12" fill="url(#glass)"/>
+    <rect x="172" y="464" width="680" height="310" rx="12" fill="url(#specular)"/>
+    <rect x="192" y="464" width="640" height="1" rx="0.5" fill="url(#edge-light)"/>
+    <rect x="172" y="464" width="680" height="310" rx="12" fill="none" stroke="rgba(255,255,255,0.06)" stroke-width="0.5"/>
+
+    <!-- Vinyl record — refined -->
+    <g transform="translate(512, 619)">
+      <circle cx="0" cy="0" r="116" fill="none" stroke="#cbb48e" stroke-opacity="0.07" stroke-width="1"/>
+      <circle cx="0" cy="0" r="96" fill="none" stroke="#cbb48e" stroke-opacity="0.05" stroke-width="0.5"/>
+      <circle cx="0" cy="0" r="78" fill="none" stroke="#cbb48e" stroke-opacity="0.04" stroke-width="0.5"/>
+      <circle cx="0" cy="0" r="60" fill="none" stroke="#cbb48e" stroke-opacity="0.035" stroke-width="0.5"/>
+      <circle cx="0" cy="0" r="38" fill="rgba(203,180,142,0.025)" stroke="#cbb48e" stroke-opacity="0.08" stroke-width="0.75"/>
+      <circle cx="0" cy="0" r="4" fill="#cbb48e" opacity="0.3"/>
+      <!-- Glass reflection across disc — like light hitting a glass surface -->
+      <ellipse cx="-15" cy="-40" rx="80" ry="30" fill="rgba(255,255,255,0.015)" transform="rotate(-25)"/>
+      <!-- Specular highlight arc -->
+      <path d="M -60 -80 A 100 100 0 0 1 80 -60" fill="none" stroke="rgba(255,255,255,0.04)" stroke-width="20" stroke-linecap="round"/>
+    </g>
+
+    <!-- ═══ PANEL 4: Controls ═══ -->
+    <rect x="172" y="786" width="680" height="90" rx="12" fill="url(#glass)"/>
+    <rect x="172" y="786" width="680" height="90" rx="12" fill="url(#specular)"/>
+    <rect x="192" y="786" width="640" height="1" rx="0.5" fill="url(#edge-light)"/>
+    <rect x="172" y="786" width="680" height="90" rx="12" fill="none" stroke="rgba(255,255,255,0.06)" stroke-width="0.5"/>
+
+    <g transform="translate(512, 831)">
+      <!-- Previous -->
+      <g transform="translate(-72, 0)" opacity="0.3">
+        <rect x="-13" y="-7" width="3" height="14" rx="1" fill="#cbb48e"/>
+        <polygon points="-8,-7 3,0 -8,7" fill="#cbb48e"/>
+      </g>
+
+      <!-- Play — glass button -->
+      <g filter="url(#play-glow)">
+        <circle cx="0" cy="0" r="24" fill="rgba(255,255,255,0.03)"/>
+        <circle cx="0" cy="0" r="24" fill="none" stroke="rgba(203,180,142,0.2)" stroke-width="1"/>
+        <!-- Specular on play button circle -->
+        <path d="M -16 -16 A 24 24 0 0 1 16 -16" fill="none" stroke="rgba(255,255,255,0.08)" stroke-width="1" stroke-linecap="round"/>
+        <polygon points="-6,-10 12,0 -6,10" fill="#cbb48e" opacity="0.6"/>
+      </g>
+
+      <!-- Next -->
+      <g transform="translate(72, 0)" opacity="0.3">
+        <polygon points="-3,-7 8,0 -3,7" fill="#cbb48e"/>
+        <rect x="10" y="-7" width="3" height="14" rx="1" fill="#cbb48e"/>
+      </g>
+
+      <!-- Shuffle -->
+      <g transform="translate(-140, 0)" opacity="0.15">
+        <path d="M-5,-3 L5,3 M-5,3 L5,-3" stroke="#cbb48e" stroke-width="1.5" stroke-linecap="round"/>
+      </g>
+
+      <!-- Repeat -->
+      <g transform="translate(140, 0)" opacity="0.15">
+        <path d="M-5,-2.5 L5,-2.5 L2.5,-5 M5,2.5 L-5,2.5 L-2.5,5" stroke="#cbb48e" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+      </g>
+    </g>
+
+    <!-- ═══ Glass finishing ═══ -->
+
+    <!-- Full-icon specular sweep — diagonal light across the whole surface -->
+    <ellipse cx="380" cy="300" rx="500" ry="350" fill="rgba(255,255,255,0.012)" transform="rotate(-20, 380, 300)"/>
+
+    <!-- Edge highlight — glass rim light -->
+    <rect width="1024" height="1024" fill="none" stroke="rgba(255,255,255,0.05)" stroke-width="1.5" rx="228" ry="228"/>
+
+    <!-- Soft vignette -->
+    <rect width="1024" height="1024" fill="none" stroke="#0a090c" stroke-width="60" stroke-opacity="0.35" rx="228" ry="228"/>
+
+    <!-- Top crown highlight -->
+    <rect x="300" y="72" width="424" height="1" rx="0.5" fill="rgba(255,255,255,0.1)"/>
+  </g>
+</svg>

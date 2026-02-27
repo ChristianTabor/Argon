@@ -1,0 +1,53 @@
+/* Catppuccin Mocha — Warm pastels on chocolate */
+:root {
+  --bg-primary: #1e1e2e;
+  --bg-secondary: #252536;
+  --bg-display: #11111b;
+  --bg-panel: #252536;
+
+  --text-primary: #cdd6f4;
+  --text-secondary: #bac2de;
+  --text-dim: #585b70;
+  --text-accent: #cba6f7;
+
+  --accent: #cba6f7;
+  --accent-dim: rgba(203, 166, 247, 0.1);
+  --accent-glow: rgba(203, 166, 247, 0.25);
+  --accent-secondary: #f38ba8;
+
+  --ctrl-bg: rgba(205, 214, 244, 0.05);
+  --ctrl-hover: rgba(205, 214, 244, 0.08);
+  --ctrl-active: rgba(203, 166, 247, 0.15);
+
+  --bar-bg: rgba(205, 214, 244, 0.07);
+  --bar-fill: linear-gradient(90deg, #cba6f7, #f38ba8);
+  --bar-handle: #cba6f7;
+
+  --border: rgba(205, 214, 244, 0.06);
+  --border-accent: rgba(203, 166, 247, 0.18);
+  --shadow: 0 8px 32px rgba(0, 0, 0, 0.55);
+  --glow: 0 0 20px rgba(203, 166, 247, 0.25);
+
+  --viz-color-1: #cba6f7;
+  --viz-color-2: #f38ba8;
+  --viz-color-3: #a6e3a1;
+  --viz-bg: transparent;
+
+  --titlebar-bg: rgba(17, 17, 27, 0.5);
+  --titlebar-text: #585b70;
+
+  --artwork-border: rgba(203, 166, 247, 0.12);
+  --artwork-shadow: 0 4px 24px rgba(0, 0, 0, 0.4);
+  --artwork-radius: 8px;
+
+  --panel-bg: #252536;
+  --logo-color: #585b70;
+  --logo-accent-color: #cba6f7;
+
+  /* ── Window constraints ── */
+  --base-width: 320;
+  --window-min-width: 275;
+  --window-min-height: 520;
+  --window-max-width: 500;
+  --window-max-height: 1200;
+}
