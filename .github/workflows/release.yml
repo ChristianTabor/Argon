@@ -1,0 +1,75 @@
+name: Release
+
+on:
+  push:
+    branches: [main, master]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm test
+
+      - name: Package macOS builds
+        run: |
+          mkdir -p dist
+
+          # Build for both architectures
+          for arch in x64 arm64; do
+            npx @electron/packager . Argon \
+              --platform=darwin \
+              --arch=$arch \
+              --out=dist \
+              --overwrite \
+              --app-bundle-id=com.tabor.argon \
+              --app-version=$(node -p "require('./package.json').version") \
+              --icon=assets/icon-matte.icns \
+              --ignore="^/dist" \
+              --ignore="^/build-and-install.sh" \
+              --ignore="^/\.git" \
+              --ignore="^/\.github" \
+              --ignore="^/\.claude" \
+              --ignore="^/assets" \
+              --ignore="^/test" \
+              --ignore="THEME_GUIDE\.md"
+          done
+
+      - name: Create ZIP archives
+        run: |
+          cd dist
+          for dir in Argon-darwin-*; do
+            zip -r -y "${dir}.zip" "$dir"
+          done
+
+      - name: Get version
+        id: version
+        run: echo "version=v$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.version }}-${{ github.run_number }}
+          name: Argon ${{ steps.version.outputs.version }} (build ${{ github.run_number }})
+          body: |
+            Automated release from commit ${{ github.sha }}.
+
+            **Downloads:**
+            - `Argon-darwin-arm64.zip` — Apple Silicon (M1/M2/M3/M4)
+            - `Argon-darwin-x64.zip` — Intel Mac
+          files: |
+            dist/Argon-darwin-arm64.zip
+            dist/Argon-darwin-x64.zip
+          draft: false
+          prerelease: false
