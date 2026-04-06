@@ -626,6 +626,7 @@ function registerGlobalShortcuts() {
 // ─── App Lifecycle ──────────────────────────────────────────────────────────
 
 app.whenReady().then(() => {
+  if (app.dock) app.dock.hide();
   createWindow();
   createTray();
   registerGlobalShortcuts();

@@ -62,13 +62,16 @@
   const btnCloseEq = $('#btn-close-eq');
   const miniPlayer = $('#mini-player');
   const miniTrack = $('#mini-track');
-  const miniArtist = $('#mini-artist');
   const miniPrev = $('#mini-prev');
   const miniNext = $('#mini-next');
   const miniPlayPause = $('#mini-playpause');
   const miniExpand = $('#mini-expand');
   const miniIconPlay = $('.mini-icon-play');
   const miniIconPause = $('.mini-icon-pause');
+  const miniSeekBar = $('#mini-seek-bar');
+  const miniSeekFill = $('#mini-seek-fill');
+  const miniCloseBtn = $('#mini-close');
+  const miniMinimizeBtn = $('#mini-minimize');
 
   // ─── State ─────────────────────────────────────────────────────────────
   let state = {
@@ -178,6 +181,9 @@
       const timeStr = formatTime(displayPos);
       timeCurrent.textContent = timeStr;
       seekTimeLeft.textContent = timeStr;
+      if (state.miniMode && seek.duration > 0) {
+        miniSeekFill.style.width = `${(displayPos / seek.duration) * 100}%`;
+      }
       seek.timeUpdateRAF = requestAnimationFrame(tick);
     }
     seek.timeUpdateRAF = requestAnimationFrame(tick);
@@ -1119,11 +1125,19 @@
   // ─── Mini Mode ───────────────────────────────────────────────────────
   function updateMiniPlayerUI() {
     if (!state.miniMode) return;
-    miniTrack.textContent = state.track || 'Not Playing';
-    miniArtist.textContent = state.artist || '';
+    const label = state.track
+      ? `${state.track}${state.artist ? ' — ' + state.artist : ''}`
+      : 'Not Playing';
+    miniTrack.textContent = label;
     if (miniIconPlay && miniIconPause) {
       miniIconPlay.style.display = state.playing ? 'none' : '';
       miniIconPause.style.display = state.playing ? '' : 'none';
+    }
+    // Update mini seek position
+    if (state.duration > 0) {
+      miniSeekFill.style.width = `${(state.position / state.duration) * 100}%`;
+    } else {
+      miniSeekFill.style.width = '0%';
     }
   }
 
@@ -1131,7 +1145,7 @@
     state.miniMode = true;
     player.classList.add('mini-mode');
     btnMini.classList.add('active');
-    window.api.window.applyConstraints(200, 56, 600, 56, 320, 56);
+    window.api.window.applyConstraints(200, 28, 600, 28, 320, 28);
     updateMiniPlayerUI();
   }
 
@@ -1160,6 +1174,17 @@
   miniPlayPause.addEventListener('click', () => {
     if (state.playing) window.api.music.pause();
     else window.api.music.play();
+  });
+  miniCloseBtn.addEventListener('click', () => window.api.window.close());
+  miniMinimizeBtn.addEventListener('click', () => window.api.window.minimize());
+
+  // Mini seek bar — click to seek
+  miniSeekBar.addEventListener('click', (e) => {
+    if (state.duration <= 0) return;
+    const rect = miniSeekBar.getBoundingClientRect();
+    const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    const pos = pct * state.duration;
+    window.api.music.setPosition(pos);
   });
 
   // Listen for global shortcut toggle from main process

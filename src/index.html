@@ -36,25 +36,37 @@
       </div>
     </div>
 
-    <!-- Mini Player (visible only in mini mode) -->
+    <!-- Mini Player / Windowshade (visible only in mini mode) -->
     <div class="mini-player" id="mini-player">
+      <div class="mini-drag"></div>
+      <span class="mini-title">ARGON</span>
       <button class="mini-ctrl" id="mini-prev" title="Previous">
-        <svg width="14" height="14" viewBox="0 0 20 20"><rect x="2" y="4" width="2.5" height="12" rx="0.75" fill="currentColor"/><path d="M15 4L7 10L15 16V4Z" fill="currentColor"/></svg>
+        <svg width="10" height="10" viewBox="0 0 20 20"><rect x="2" y="4" width="2.5" height="12" rx="0.75" fill="currentColor"/><path d="M15 4L7 10L15 16V4Z" fill="currentColor"/></svg>
       </button>
       <button class="mini-ctrl mini-playpause" id="mini-playpause" title="Play/Pause">
-        <svg width="16" height="16" viewBox="0 0 24 24" class="mini-icon-play"><path d="M7 4L19 12L7 20V4Z" fill="currentColor"/></svg>
-        <svg width="16" height="16" viewBox="0 0 24 24" class="mini-icon-pause" style="display:none"><rect x="5" y="4" width="4.5" height="16" rx="1.2" fill="currentColor"/><rect x="14.5" y="4" width="4.5" height="16" rx="1.2" fill="currentColor"/></svg>
+        <svg width="12" height="12" viewBox="0 0 24 24" class="mini-icon-play"><path d="M7 4L19 12L7 20V4Z" fill="currentColor"/></svg>
+        <svg width="12" height="12" viewBox="0 0 24 24" class="mini-icon-pause" style="display:none"><rect x="5" y="4" width="4.5" height="16" rx="1.2" fill="currentColor"/><rect x="14.5" y="4" width="4.5" height="16" rx="1.2" fill="currentColor"/></svg>
       </button>
       <button class="mini-ctrl" id="mini-next" title="Next">
-        <svg width="14" height="14" viewBox="0 0 20 20"><path d="M5 4L13 10L5 16V4Z" fill="currentColor"/><rect x="15.5" y="4" width="2.5" height="12" rx="0.75" fill="currentColor"/></svg>
+        <svg width="10" height="10" viewBox="0 0 20 20"><path d="M5 4L13 10L5 16V4Z" fill="currentColor"/><rect x="15.5" y="4" width="2.5" height="12" rx="0.75" fill="currentColor"/></svg>
       </button>
+      <div class="mini-seek-bar" id="mini-seek-bar">
+        <div class="mini-seek-fill" id="mini-seek-fill"></div>
+      </div>
       <div class="mini-track-info">
         <span class="mini-track" id="mini-track">Not Playing</span>
-        <span class="mini-artist" id="mini-artist"></span>
       </div>
-      <button class="mini-ctrl mini-expand" id="mini-expand" title="Exit Mini Mode">
-        <svg width="12" height="12" viewBox="0 0 10 10"><path d="M1 4V1h3M9 6v3H6" stroke="currentColor" stroke-width="1.3" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
-      </button>
+      <div class="mini-buttons">
+        <button class="mini-ctrl mini-expand" id="mini-expand" title="Exit Windowshade">
+          <svg width="10" height="10" viewBox="0 0 10 10"><path d="M1 4V1h3M9 6v3H6" stroke="currentColor" stroke-width="1.3" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+        <button class="mini-ctrl" id="mini-minimize" title="Minimize">
+          <svg width="8" height="8" viewBox="0 0 10 10"><rect x="1" y="4.5" width="8" height="1.5" rx="0.5" fill="currentColor"/></svg>
+        </button>
+        <button class="mini-ctrl" id="mini-close" title="Close">
+          <svg width="8" height="8" viewBox="0 0 10 10"><path d="M1.5 0.5L5 4L8.5 0.5L9.5 1.5L6 5L9.5 8.5L8.5 9.5L5 6L1.5 9.5L0.5 8.5L4 5L0.5 1.5Z" fill="currentColor"/></svg>
+        </button>
+      </div>
     </div>
 
     <!-- Visualizer -->
