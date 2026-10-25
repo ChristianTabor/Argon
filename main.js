@@ -14,6 +14,9 @@ let windowLocked = false;
 let prevAlwaysOnTop = false;
 let isSnapped = false;
 let lastProgrammaticMove = 0;
+let dockIconHidden = false;
+let trayTrack = '';
+let trayArtist = '';
 
 function snapToBottomRight() {
   const display = screen.getDisplayMatching(mainWindow.getBounds());
@@ -57,6 +60,16 @@ function createWindow() {
     isSnapped = false;
   });
 
+  // Keep the tray's Show/Hide Window label in sync with the window
+  const refreshTrayMenu = () => updateTrayMenu(trayTrack, trayArtist);
+  mainWindow.on('show', refreshTrayMenu);
+  mainWindow.on('hide', refreshTrayMenu);
+  mainWindow.on('focus', refreshTrayMenu);
+  mainWindow.on('blur', refreshTrayMenu);
+  mainWindow.on('minimize', refreshTrayMenu);
+  mainWindow.on('restore', refreshTrayMenu);
+  mainWindow.on('closed', refreshTrayMenu);
+
   if (process.env.NODE_ENV === 'development') {
     mainWindow.webContents.openDevTools({ mode: 'detach' });
   }
@@ -76,12 +89,19 @@ function loadPrefs() {
       return JSON.parse(fs.readFileSync(PREFS_PATH, 'utf-8'));
     }
   } catch (e) { /* ignore */ }
-  return { theme: 'classic-winamp', visualizer: 'bars', alwaysOnTop: false };
+  return { theme: 'classic-winamp', visualizer: 'bars', alwaysOnTop: false, hideDockIcon: false };
 }
 
 // Save preferences
 function savePrefs(prefs) {
   fs.writeFileSync(PREFS_PATH, JSON.stringify(prefs, null, 2));
+}
+
+// Merge changes into the saved prefs, so one writer doesn't wipe keys another one owns
+function updatePrefs(changes) {
+  const current = loadPrefs();
+  const base = current && typeof current === 'object' && !Array.isArray(current) ? current : {};
+  savePrefs({ ...base, ...changes });
 }
 
 // AppleScript execution helper
@@ -471,6 +491,7 @@ ipcMain.handle('window:close', () => mainWindow.close());
 ipcMain.handle('window:toggleOnTop', () => {
   const isOnTop = mainWindow.isAlwaysOnTop();
   mainWindow.setAlwaysOnTop(!isOnTop);
+  updateTrayMenu(trayTrack, trayArtist); // a pinned window counts as in front for Show/Hide Window
   return !isOnTop;
 });
 
@@ -521,7 +542,7 @@ ipcMain.handle('prefs:save', (_, prefs) => {
   const allowed = {
     theme: 'string', visualizer: 'string', alwaysOnTop: 'boolean',
     transparency: 'number', darkText: 'boolean', eqBands: 'object',
-    eqPreset: 'string', miniMode: 'boolean',
+    eqPreset: 'string', miniMode: 'boolean', hideDockIcon: 'boolean',
   };
   const sanitized = {};
   for (const [key, type] of Object.entries(allowed)) {
@@ -529,7 +550,8 @@ ipcMain.handle('prefs:save', (_, prefs) => {
       sanitized[key] = prefs[key];
     }
   }
-  savePrefs(sanitized);
+  // Merge, so keys the renderer doesn't send (hideDockIcon, owned by the tray menu) survive
+  updatePrefs(sanitized);
 });
 
 // ─── Tray ───────────────────────────────────────────────────────────────────
@@ -564,18 +586,74 @@ function createTray() {
   tray.setToolTip('Argon');
   updateTrayMenu('Not Playing', '');
 
-  tray.on('click', () => {
-    if (mainWindow) {
-      if (mainWindow.isVisible()) mainWindow.hide();
-      else mainWindow.show();
-    }
-  });
+  tray.on('click', toggleMainWindow);
+}
+
+// Up and in front of other windows: focused, or pinned always on top
+function mainWindowInFront() {
+  return Boolean(mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible()
+    && (mainWindow.isFocused() || mainWindow.isAlwaysOnTop()));
+}
+
+// Bring the window to the front. Closing the window destroys it, so recreate it then.
+function showMainWindow() {
+  // From the tray another app is usually active, and with the Dock icon hidden Argon isn't in
+  // Cmd+Tab, so take focus or the window can stay buried behind that app
+  app.focus({ steal: true });
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    createWindow();
+    return;
+  }
+  if (mainWindow.isMinimized()) mainWindow.restore();
+  mainWindow.show();
+  mainWindow.focus();
+}
+
+function hideMainWindow() {
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.hide();
+}
+
+// Tray click: hide the window only when it's in front; a buried window comes forward instead
+function toggleMainWindow() {
+  if (mainWindowInFront()) hideMainWindow();
+  else showMainWindow();
+}
+
+// Optional Dock icon (tray menu → Show Dock Icon)
+function setDockIconHidden(hidden) {
+  dockIconHidden = hidden;
+  if (!app.dock) return;
+  if (!hidden) {
+    app.dock.show();
+    return;
+  }
+  const hadFocus = mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible() && mainWindow.isFocused();
+  app.dock.hide();
+  if (!hadFocus) return;
+  // Becoming an accessory app lands asynchronously and deactivates Argon: the window stays up
+  // but loses focus, and re-focusing too early gets undone. Re-focus 100ms after the last
+  // deactivation, and only listen briefly so a later app switch by the user isn't undone.
+  let pending;
+  const refocusSoon = () => {
+    clearTimeout(pending);
+    pending = setTimeout(() => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.show();
+        mainWindow.focus();
+      }
+    }, 100);
+  };
+  app.on('did-resign-active', refocusSoon);
+  setTimeout(() => app.removeListener('did-resign-active', refocusSoon), 1000);
 }
 
 function updateTrayMenu(track, artist) {
   if (!tray) return;
+  trayTrack = track;
+  trayArtist = artist;
   const trackLabel = track || 'Not Playing';
   const artistLabel = artist || '';
+  const windowInFront = mainWindowInFront();
 
   const contextMenu = Menu.buildFromTemplate([
     { label: trackLabel, enabled: false },
@@ -585,15 +663,18 @@ function updateTrayMenu(track, artist) {
     { label: 'Next Track', click: () => runAppleScript('tell application "Music" to next track') },
     { label: 'Previous Track', click: () => runAppleScript('tell application "Music" to previous track') },
     { type: 'separator' },
-    {
-      label: mainWindow && mainWindow.isVisible() ? 'Hide Window' : 'Show Window',
+    // Bound to the label, so the item does what it says even if focus moves while the menu is open
+    { label: windowInFront ? 'Hide Window' : 'Show Window', click: windowInFront ? hideMainWindow : showMainWindow },
+    ...(app.dock ? [{
+      label: 'Show Dock Icon',
+      type: 'checkbox',
+      checked: !dockIconHidden,
       click: () => {
-        if (mainWindow) {
-          if (mainWindow.isVisible()) mainWindow.hide();
-          else mainWindow.show();
-        }
+        setDockIconHidden(!dockIconHidden);
+        updatePrefs({ hideDockIcon: dockIconHidden });
+        updateTrayMenu(trayTrack, trayArtist);
       },
-    },
+    }] : []),
     { type: 'separator' },
     { label: 'Quit Argon', click: () => { tray = null; app.quit(); } },
   ]);
@@ -619,14 +700,17 @@ function registerGlobalShortcuts() {
     runAppleScript('tell application "Music" to set sound volume to (sound volume - 5)');
   });
   globalShortcut.register('CommandOrControl+Shift+M', () => {
-    if (mainWindow) mainWindow.webContents.send('toggle-mini-mode');
+    // Closing the window destroys it, so bring it back instead of throwing
+    if (!mainWindow || mainWindow.isDestroyed()) createWindow();
+    else mainWindow.webContents.send('toggle-mini-mode');
   });
 }
 
 // ─── App Lifecycle ──────────────────────────────────────────────────────────
 
 app.whenReady().then(() => {
-  if (app.dock) app.dock.hide();
+  // Applied before the window is created, so the window opens with the app already in accessory mode
+  if (loadPrefs().hideDockIcon === true) setDockIconHidden(true);
   createWindow();
   createTray();
   registerGlobalShortcuts();

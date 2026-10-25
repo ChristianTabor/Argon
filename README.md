@@ -18,6 +18,7 @@ Argon gives you a compact, themeable, always-on-top music controller that wraps 
 - **10-Band Equalizer** — Visual EQ with 10 presets (Rock, Pop, Jazz, Classical, etc.)
 - **Global Shortcuts** — Media keys and custom hotkeys work system-wide
 - **Menu Bar / Tray** — Tray icon with playback controls and track info
+- **Hide Dock Icon** — Optional: uncheck **Show Dock Icon** in the tray menu to keep Argon out of the Dock
 - **Track Notifications** — Native macOS notifications on track change
 - **Background Transparency** — Adjustable opacity with macOS vibrancy
 - **Dark/Light Text Mode** — Toggle text polarity for any background
