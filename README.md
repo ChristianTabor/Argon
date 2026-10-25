@@ -2,7 +2,7 @@
 
 A Winamp-inspired Apple Music controller for macOS, built with Electron.
 
-Argon gives you a compact, themeable, always-on-top music controller that wraps Apple Music via AppleScript. It ships with a full theme engine, adaptive album art colors, a 10-band equalizer, lyrics display, mini mode, and system tray integration.
+Argon gives you a compact, themeable, always-on-top music controller that wraps Apple Music via AppleScript. It ships with a full theme engine, adaptive album art colors, a 10-band equalizer, lyrics display, a Winamp-style windowshade mode, and system tray integration.
 
 ![Electron](https://img.shields.io/badge/Electron-28-47848F?logo=electron&logoColor=white)
 ![macOS](https://img.shields.io/badge/macOS-Sonoma+-000?logo=apple&logoColor=white)
@@ -13,7 +13,7 @@ Argon gives you a compact, themeable, always-on-top music controller that wraps 
 - **Winamp-style UI** — Compact player with visualizer, seek bar, volume, shuffle/repeat
 - **Theme Engine** — 10+ built-in themes, user-installable .zip themes, per-theme layout control
 - **Adaptive Theme** — Extracts colors from album art in real-time (WCAG contrast-safe)
-- **Mini Mode** — 320x56 horizontal strip with essential controls
+- **Windowshade Mode** — Winamp-style 320x28 bar (resizable 280–600px wide) with transport controls, a seek bar, and the current track
 - **Lyrics Display** — Fetches lyrics from Apple Music metadata
 - **10-Band Equalizer** — Visual EQ with 10 presets (Rock, Pop, Jazz, Classical, etc.)
 - **Global Shortcuts** — Media keys and custom hotkeys work system-wide
@@ -89,7 +89,7 @@ Opens with DevTools detached for debugging.
 | `Media Previous` | Previous Track |
 | `Cmd + Shift + Up` | Volume Up |
 | `Cmd + Shift + Down` | Volume Down |
-| `Cmd + Shift + M` | Toggle Mini Mode |
+| `Cmd + Shift + M` | Toggle Windowshade |
 
 ## Theme System
 

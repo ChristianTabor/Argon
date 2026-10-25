@@ -19,13 +19,18 @@ describe('HTML Structure', () => {
     expect(html).toContain('id="mini-playpause"');
     expect(html).toContain('id="mini-next"');
     expect(html).toContain('id="mini-track"');
-    expect(html).toContain('id="mini-artist"');
+    expect(html).toContain('id="mini-seek-bar"');
+    expect(html).toContain('id="mini-seek-fill"');
     expect(html).toContain('id="mini-expand"');
+    expect(html).toContain('id="mini-minimize"');
+    expect(html).toContain('id="mini-close"');
+    // Windowshade shows track and artist on one line, so there is no separate artist element
+    expect(html).not.toContain('id="mini-artist"');
   });
 
   test('contains mini mode button in titlebar', () => {
     expect(html).toContain('id="btn-mini"');
-    expect(html).toContain('Mini Mode');
+    expect(html).toContain('title="Windowshade (Cmd+Shift+M)"');
   });
 
   test('contains lyrics panel', () => {
@@ -106,8 +111,13 @@ describe('CSS Styles', () => {
     expect(css).toContain('.mini-playpause');
     expect(css).toContain('.mini-track-info');
     expect(css).toContain('.mini-track');
-    expect(css).toContain('.mini-artist');
+    expect(css).toContain('.mini-drag');
+    expect(css).toContain('.mini-title');
+    expect(css).toContain('.mini-seek-bar');
+    expect(css).toContain('.mini-seek-fill');
+    expect(css).toContain('.mini-buttons');
     expect(css).toContain('.mini-expand');
+    expect(css).not.toContain('.mini-artist');
   });
 
   test('mini mode hides all main sections', () => {
@@ -151,12 +161,14 @@ describe('App.js Logic', () => {
       const refs = [
         'btnMini', 'btnLyrics', 'lyricsPanel', 'lyricsContent', 'btnCloseLyrics',
         'eqPanel', 'eqSliders', 'eqLabels', 'eqPresetSelect', 'btnCloseEq',
-        'miniPlayer', 'miniTrack', 'miniArtist', 'miniPrev', 'miniNext',
+        'miniPlayer', 'miniTrack', 'miniPrev', 'miniNext',
         'miniPlayPause', 'miniExpand', 'miniIconPlay', 'miniIconPause',
+        'miniSeekBar', 'miniSeekFill', 'miniCloseBtn', 'miniMinimizeBtn', 'miniPinBtn',
       ];
       for (const ref of refs) {
         expect(appCode).toContain(`const ${ref}`);
       }
+      expect(appCode).not.toContain('miniArtist');
     });
   });
 
@@ -267,7 +279,12 @@ describe('App.js Logic', () => {
     });
 
     test('enterMiniMode applies correct window constraints for mini strip', () => {
-      expect(appCode).toMatch(/enterMiniMode[\s\S]*?applyConstraints\(200, 56, 600, 56, 320, 56\)/);
+      expect(appCode).toMatch(/enterMiniMode[\s\S]*?applyConstraints\(280, 28, 600, 28, 320, 28\)/);
+    });
+
+    test('updateMiniPlayerUI shows track and artist on one line', () => {
+      expect(appCode).toMatch(/function updateMiniPlayerUI\(\)[\s\S]*?state\.artist \? ' — ' \+ state\.artist : ''/);
+      expect(appCode).toMatch(/function updateMiniPlayerUI\(\)[\s\S]*?miniTrack\.textContent = label/);
     });
 
     test('exitMiniMode restores normal constraints', () => {
@@ -353,6 +370,69 @@ describe('App.js Logic', () => {
   });
 });
 
+describe('Windowshade Bar', () => {
+  let html, css, appCode, miniButtons;
+
+  beforeAll(() => {
+    html = fs.readFileSync(path.join(__dirname, '..', 'src', 'index.html'), 'utf-8');
+    css = fs.readFileSync(path.join(__dirname, '..', 'src', 'styles', 'base.css'), 'utf-8');
+    appCode = fs.readFileSync(path.join(__dirname, '..', 'src', 'js', 'app.js'), 'utf-8');
+    miniButtons = html.match(/<div class="mini-buttons">([\s\S]*?)<\/div>/)[1];
+  });
+
+  test('has a pin button among the window buttons', () => {
+    expect(miniButtons).toContain('id="mini-pin"');
+    expect(miniButtons).toContain('title="Always on Top"');
+  });
+
+  test('pin uses the same always-on-top toggle as the titlebar pin', () => {
+    expect(appCode).toContain("const miniPinBtn = $('#mini-pin')");
+    expect(appCode).toMatch(/async function toggleAlwaysOnTop\(\)[\s\S]*?window\.api\.window\.toggleOnTop\(\)[\s\S]*?btnPin\.classList\.toggle\('active', isOnTop\)[\s\S]*?miniPinBtn\.classList\.toggle\('active', isOnTop\)/);
+    expect(appCode).toContain("btnPin.addEventListener('click', toggleAlwaysOnTop)");
+    expect(appCode).toContain("miniPinBtn.addEventListener('click', toggleAlwaysOnTop)");
+  });
+
+  test('pin shows the same active state as the titlebar pin', () => {
+    expect(css).toMatch(/\.btn-pin\.active\s*\{[^}]*color:\s*var\(--accent\)/);
+    expect(css).toMatch(/\.mini-pin\.active\s*\{[^}]*color:\s*var\(--accent\)/);
+  });
+
+  test('minimum width fits every fixed item, so nothing clips', () => {
+    const [, minW, defaultW] = appCode.match(/applyConstraints\((\d+), 28, 600, 28, (\d+), 28\)/).map(Number);
+    const buttons = (miniButtons.match(/class="mini-ctrl/g) || []).length;
+    // border 2 + padding 16 + ARGON label ~35 (widest theme font) + prev/play/next 18+20+18
+    // + seek 48 + window buttons (18px each, 2px apart) + 6 gaps of 5px between bar items
+    const fixed = 2 + 16 + 35 + 56 + 48 + (buttons * 18 + (buttons - 1) * 2) + 6 * 5;
+    expect(minW).toBeGreaterThanOrEqual(fixed);
+    expect(defaultW).toBeGreaterThan(minW);
+  });
+
+  test('seek bar uses the theme bar colors', () => {
+    expect(css).toMatch(/\.mini-seek-bar\s*\{[^}]*background:\s*var\(--bar-bg\)/);
+    expect(css).toMatch(/\.mini-seek-fill\s*\{[^}]*background:\s*var\(--bar-fill\)/);
+    expect(css).not.toContain('--seek-bg');
+  });
+
+  test('seek bar has a larger click area that stays out of the drag region', () => {
+    expect(css).toMatch(/\.mini-seek-bar::before\s*\{[^}]*top:\s*-8px[^}]*bottom:\s*-8px[^}]*-webkit-app-region:\s*no-drag/);
+  });
+
+  test('seek click restarts the local seek animation from the new position', () => {
+    expect(appCode).toMatch(/miniSeekBar\.addEventListener\('click'[\s\S]*?window\.api\.music\.setPosition\(pos\);[\s\S]*?setSeekPosition\(pos, state\.duration, state\.playing\)/);
+  });
+
+  test('close hover is tied to a class, not to the button position', () => {
+    expect(miniButtons).toContain('class="mini-ctrl mini-close" id="mini-close"');
+    expect(css).toMatch(/\.mini-close:hover\s*\{[^}]*#ff453a/);
+    expect(css).not.toContain(':last-child:hover');
+  });
+
+  test('user-facing text calls it Windowshade', () => {
+    expect(html).toContain('title="Exit Windowshade"');
+    expect(html).not.toContain('Mini Mode');
+  });
+});
+
 describe('Security', () => {
   let html, themeManagerCode;
 
@@ -404,7 +484,7 @@ describe('README', () => {
   });
 
   test('describes all 6 new features', () => {
-    expect(readme).toContain('Mini Mode');
+    expect(readme).toContain('Windowshade Mode');
     expect(readme).toContain('Lyrics Display');
     expect(readme).toContain('Equalizer');
     expect(readme).toContain('Global Shortcuts');

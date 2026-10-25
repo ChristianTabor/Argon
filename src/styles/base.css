@@ -1397,7 +1397,7 @@ button {
 .mini-seek-bar {
   width: 48px;
   height: 4px;
-  background: var(--seek-bg, rgba(255,255,255,0.1));
+  background: var(--bar-bg);
   border-radius: 2px;
   flex-shrink: 0;
   position: relative;
@@ -1406,9 +1406,20 @@ button {
   -webkit-app-region: no-drag;
 }
 
+/* Larger click area, like the main seek bar (kept out of the drag region) */
+.mini-seek-bar::before {
+  content: '';
+  position: absolute;
+  top: -8px;
+  bottom: -8px;
+  left: 0;
+  right: 0;
+  -webkit-app-region: no-drag;
+}
+
 .mini-seek-fill {
   height: 100%;
-  background: var(--accent);
+  background: var(--bar-fill);
   border-radius: 2px;
   width: 0%;
   transition: none;
@@ -1450,7 +1461,11 @@ button {
   color: var(--accent);
 }
 
-.mini-buttons .mini-ctrl:last-child:hover {
+.mini-pin.active {
+  color: var(--accent);
+}
+
+.mini-close:hover {
   background: rgba(255, 69, 58, 0.2);
   color: #ff453a;
 }

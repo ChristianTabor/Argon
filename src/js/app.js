@@ -72,6 +72,7 @@
   const miniSeekFill = $('#mini-seek-fill');
   const miniCloseBtn = $('#mini-close');
   const miniMinimizeBtn = $('#mini-minimize');
+  const miniPinBtn = $('#mini-pin');
 
   // ─── State ─────────────────────────────────────────────────────────────
   let state = {
@@ -924,10 +925,14 @@
     });
   }
 
-  btnPin.addEventListener('click', async () => {
+  // Shared by the titlebar pin and the windowshade pin so both show the same state
+  async function toggleAlwaysOnTop() {
     const isOnTop = await window.api.window.toggleOnTop();
     btnPin.classList.toggle('active', isOnTop);
-  });
+    miniPinBtn.classList.toggle('active', isOnTop);
+  }
+
+  btnPin.addEventListener('click', toggleAlwaysOnTop);
 
   btnMinimize.addEventListener('click', () => window.api.window.minimize());
   btnClose.addEventListener('click', () => window.api.window.close());
@@ -1145,7 +1150,8 @@
     state.miniMode = true;
     player.classList.add('mini-mode');
     btnMini.classList.add('active');
-    window.api.window.applyConstraints(200, 28, 600, 28, 320, 28);
+    // Min 280: the bar's fixed items (label, transport, seek, 4 window buttons, gaps) need ~265px
+    window.api.window.applyConstraints(280, 28, 600, 28, 320, 28);
     updateMiniPlayerUI();
   }
 
@@ -1177,6 +1183,7 @@
   });
   miniCloseBtn.addEventListener('click', () => window.api.window.close());
   miniMinimizeBtn.addEventListener('click', () => window.api.window.minimize());
+  miniPinBtn.addEventListener('click', toggleAlwaysOnTop);
 
   // Mini seek bar — click to seek
   miniSeekBar.addEventListener('click', (e) => {
@@ -1185,6 +1192,9 @@
     const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
     const pos = pct * state.duration;
     window.api.music.setPosition(pos);
+    // Restart the local seek animation from the new position (like the main seek bar)
+    seek.position = pos;
+    setSeekPosition(pos, state.duration, state.playing);
   });
 
   // Listen for global shortcut toggle from main process
