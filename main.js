@@ -10,6 +10,7 @@ const PREFS_PATH = path.join(app.getPath('userData'), 'prefs.json');
 
 let mainWindow;
 let tray = null;
+let trayMenu = null;
 let windowLocked = false;
 let prevAlwaysOnTop = false;
 let isSnapped = false;
@@ -586,7 +587,17 @@ function createTray() {
   tray.setToolTip('Argon');
   updateTrayMenu('Not Playing', '');
 
-  tray.on('click', toggleMainWindow);
+  // Click brings the window up and opens the menu. Right-click (or Control-click) opens the
+  // menu without moving the window.
+  tray.on('click', (event) => {
+    if (!(event && event.ctrlKey)) {
+      showMainWindow();
+      // Focus lands asynchronously, so label the menu for the window that's coming to the front
+      updateTrayMenu(trayTrack, trayArtist, true);
+    }
+    tray.popUpContextMenu(trayMenu);
+  });
+  tray.on('right-click', () => tray.popUpContextMenu(trayMenu));
 }
 
 // Up and in front of other windows: focused, or pinned always on top
@@ -611,12 +622,6 @@ function showMainWindow() {
 
 function hideMainWindow() {
   if (mainWindow && !mainWindow.isDestroyed()) mainWindow.hide();
-}
-
-// Tray click: hide the window only when it's in front; a buried window comes forward instead
-function toggleMainWindow() {
-  if (mainWindowInFront()) hideMainWindow();
-  else showMainWindow();
 }
 
 // Optional Dock icon (tray menu → Show Dock Icon)
@@ -647,15 +652,15 @@ function setDockIconHidden(hidden) {
   setTimeout(() => app.removeListener('did-resign-active', refocusSoon), 1000);
 }
 
-function updateTrayMenu(track, artist) {
+function updateTrayMenu(track, artist, windowInFront = mainWindowInFront()) {
   if (!tray) return;
   trayTrack = track;
   trayArtist = artist;
   const trackLabel = track || 'Not Playing';
   const artistLabel = artist || '';
-  const windowInFront = mainWindowInFront();
 
-  const contextMenu = Menu.buildFromTemplate([
+  // Not attached with setContextMenu: on macOS that opens the menu on every click (see createTray)
+  trayMenu = Menu.buildFromTemplate([
     { label: trackLabel, enabled: false },
     ...(artistLabel ? [{ label: artistLabel, enabled: false }] : []),
     { type: 'separator' },
@@ -678,7 +683,6 @@ function updateTrayMenu(track, artist) {
     { type: 'separator' },
     { label: 'Quit Argon', click: () => { tray = null; app.quit(); } },
   ]);
-  tray.setContextMenu(contextMenu);
 }
 
 // ─── Global Shortcuts ───────────────────────────────────────────────────────

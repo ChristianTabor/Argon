@@ -36,6 +36,7 @@ const ipcHandlers = {};
 const mockTray = {
   setToolTip: jest.fn(),
   setContextMenu: jest.fn(),
+  popUpContextMenu: jest.fn(),
   on: jest.fn(),
   destroy: jest.fn(),
 };
@@ -118,6 +119,9 @@ jest.mock('fs', () => ({
 beforeAll(() => {
   require('../main.js');
 });
+
+// The tray menu main.js built most recently
+const lastTrayMenu = () => require('electron').Menu.buildFromTemplate.mock.results.at(-1).value;
 
 // ─── Tests ──────────────────────────────────────────────────────────────────
 
@@ -232,14 +236,18 @@ describe('Tray', () => {
     expect(mockTray.setToolTip).toHaveBeenCalledWith('Argon');
   });
 
-  test('tray sets initial context menu', () => {
-    expect(mockTray.setContextMenu).toHaveBeenCalled();
+  test('tray builds its menu but does not attach it to clicks', () => {
+    // Attached with setContextMenu, macOS would open the menu on every click
+    expect(require('electron').Menu.buildFromTemplate).toHaveBeenCalled();
+    expect(mockTray.setContextMenu).not.toHaveBeenCalled();
   });
 
   test('tray:updateTrack updates the menu', () => {
-    const callsBefore = mockTray.setContextMenu.mock.calls.length;
+    const { Menu } = require('electron');
+    const callsBefore = Menu.buildFromTemplate.mock.calls.length;
     ipcHandlers['tray:updateTrack']({}, 'New Song', 'New Artist');
-    expect(mockTray.setContextMenu.mock.calls.length).toBeGreaterThan(callsBefore);
+    expect(Menu.buildFromTemplate.mock.calls.length).toBeGreaterThan(callsBefore);
+    expect(lastTrayMenu()[0].label).toBe('New Song');
   });
 });
 
@@ -395,7 +403,7 @@ describe('Prefs', () => {
 });
 
 describe('Dock Icon', () => {
-  const lastMenu = () => mockTray.setContextMenu.mock.calls[mockTray.setContextMenu.mock.calls.length - 1][0];
+  const lastMenu = () => lastTrayMenu();
   const dockItem = () => lastMenu().find((item) => item.label === 'Show Dock Icon');
   const lastSavedPrefs = () => {
     const { calls } = require('fs').writeFileSync.mock;
@@ -479,7 +487,7 @@ describe('Tray — closed window', () => {
     const { BrowserWindow } = require('electron');
     destroyWindow();
     expect(() => ipcHandlers['tray:updateTrack']({}, 'Song', 'Artist')).not.toThrow();
-    const menu = mockTray.setContextMenu.mock.calls[mockTray.setContextMenu.mock.calls.length - 1][0];
+    const menu = lastTrayMenu();
     const item = menu.find((i) => i.label === 'Show Window');
     expect(item).toBeDefined();
     const created = BrowserWindow.mock.calls.length;
@@ -513,13 +521,13 @@ describe('Tray — closed window', () => {
     destroyWindow();
     const onClosed = mockWindow.on.mock.calls.filter((c) => c[0] === 'closed').pop()[1];
     onClosed();
-    const menu = mockTray.setContextMenu.mock.calls[mockTray.setContextMenu.mock.calls.length - 1][0];
+    const menu = lastTrayMenu();
     expect(menu.find((i) => i.label === 'Show Window')).toBeDefined();
   });
 
   test('the Show/Hide Window label follows the window being hidden and shown', () => {
     const handler = (evt) => mockWindow.on.mock.calls.filter((c) => c[0] === evt).pop()[1];
-    const lastMenu = () => mockTray.setContextMenu.mock.calls[mockTray.setContextMenu.mock.calls.length - 1][0];
+    const lastMenu = () => lastTrayMenu();
     mockWindow.isVisible.mockReturnValue(false);
     handler('hide')();
     expect(lastMenu().find((i) => i.label === 'Show Window')).toBeDefined();
@@ -530,10 +538,11 @@ describe('Tray — closed window', () => {
 });
 
 describe('Tray — window behind other windows', () => {
-  const lastMenu = () => mockTray.setContextMenu.mock.calls[mockTray.setContextMenu.mock.calls.length - 1][0];
+  const lastMenu = () => lastTrayMenu();
   const windowItem = () => lastMenu().find((i) => i.label === 'Show Window' || i.label === 'Hide Window');
   const handler = (evt) => mockWindow.on.mock.calls.filter((c) => c[0] === evt).pop()[1];
-  const trayClick = () => mockTray.on.mock.calls.find((c) => c[0] === 'click')[1]();
+  const trayClick = (event = {}) => mockTray.on.mock.calls.find((c) => c[0] === 'click')[1](event);
+  const trayRightClick = () => mockTray.on.mock.calls.find((c) => c[0] === 'right-click')[1]();
   // Still visible, but another app's windows are in front of it
   const buryWindow = () => {
     mockWindow.isFocused.mockReturnValue(false);
@@ -542,6 +551,7 @@ describe('Tray — window behind other windows', () => {
 
   beforeEach(() => {
     require('electron').app.focus.mockClear();
+    mockTray.popUpContextMenu.mockClear();
     [mockWindow.show, mockWindow.focus, mockWindow.hide, mockWindow.restore].forEach((fn) => fn.mockClear());
   });
 
@@ -571,14 +581,28 @@ describe('Tray — window behind other windows', () => {
     expect(mockWindow.hide).not.toHaveBeenCalled();
   });
 
-  test('tray click brings a buried window forward, and hides it only when it is in front', () => {
+  test('clicking the icon brings the window up and always opens the menu', () => {
     buryWindow();
     trayClick();
+    expect(mockWindow.show).toHaveBeenCalled();
     expect(mockWindow.focus).toHaveBeenCalled();
-    expect(mockWindow.hide).not.toHaveBeenCalled();
+    expect(mockTray.popUpContextMenu).toHaveBeenLastCalledWith(lastTrayMenu());
+    // Labeled for the window it just brought up, though the mock still reports no focus
+    expect(windowItem().label).toBe('Hide Window');
     mockWindow.isFocused.mockReturnValue(true);
+    handler('focus')();
     trayClick();
-    expect(mockWindow.hide).toHaveBeenCalledTimes(1);
+    expect(mockTray.popUpContextMenu).toHaveBeenCalledTimes(2);
+    expect(mockWindow.hide).not.toHaveBeenCalled();
+  });
+
+  test('right-click and Control-click open the menu without moving the window', () => {
+    buryWindow();
+    trayRightClick();
+    trayClick({ ctrlKey: true });
+    expect(mockTray.popUpContextMenu).toHaveBeenCalledTimes(2);
+    expect(mockTray.popUpContextMenu).toHaveBeenLastCalledWith(lastTrayMenu());
+    expect(mockWindow.show).not.toHaveBeenCalled();
   });
 
   test('Show Window restores a minimized window', () => {
@@ -618,7 +642,7 @@ describe('Dock Icon — pref on at startup', () => {
       expect(app.dock.hide).toHaveBeenCalledTimes(1);
       expect(BrowserWindow).toHaveBeenCalledTimes(1);
       expect(app.dock.hide.mock.invocationCallOrder[0]).toBeLessThan(BrowserWindow.mock.invocationCallOrder[0]);
-      const menu = mockTray.setContextMenu.mock.calls[mockTray.setContextMenu.mock.calls.length - 1][0];
+      const menu = lastTrayMenu();
       expect(menu.find((i) => i.label === 'Show Dock Icon').checked).toBe(false);
     } finally {
       fs.existsSync.mockImplementation(() => false);
