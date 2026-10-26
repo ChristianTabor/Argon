@@ -374,10 +374,22 @@
 
   // Elapsed ('1:23') or remaining ('-2:01', Winamp-style). Whole seconds, so elapsed + remaining
   // always adds up to the total shown, and the end of a track reads '0:00', never '-0:00'.
+  // With no duration (stopped, end of playlist, live stream) remaining has no meaning, so it
+  // always shows elapsed.
   function formatTimeReadout(posSec, durSec, mode) {
-    if (mode !== 'remaining') return formatTime(posSec);
+    if (mode !== 'remaining' || !(durSec > 0)) return formatTime(posSec);
     const left = Math.max(0, Math.floor(durSec || 0) - Math.floor(posSec || 0));
     return left > 0 ? `-${formatTime(left)}` : '0:00';
+  }
+
+  // A poll that reports no duration (stopped, end of playlist, live stream): park the seek state
+  // so the ticker stops, and return the position to show. Stopped always reads 0:00.
+  function parkSeekWithoutDuration(seekState, polled) {
+    seekState.isPlaying = false;
+    seekState.duration = 0;
+    seekState.lastTrack = '';
+    seekState.position = polled.state === 'stopped' ? 0 : (polled.position || 0);
+    return seekState.position;
   }
 
   // The one place the position readouts are written (classic display and inline seek time)
@@ -395,8 +407,17 @@
     seekTimeLeft.title = tip;
   }
 
+  function nextTimeMode(mode) {
+    return mode === 'remaining' ? 'elapsed' : 'remaining';
+  }
+
+  // A saved mode is only trusted if it is one of the two known values
+  function parseTimeMode(saved) {
+    return saved === 'elapsed' || saved === 'remaining' ? saved : null;
+  }
+
   function toggleTimeMode() {
-    state.timeMode = state.timeMode === 'remaining' ? 'elapsed' : 'remaining';
+    state.timeMode = nextTimeMode(state.timeMode);
     updateTimeModeTitles();
     renderTime(lastTime.pos, lastTime.dur);
     (async () => {
@@ -413,8 +434,9 @@
   // Restore the saved mode (ignore anything but the two known values)
   (async () => {
     const p = await window.api.prefs.load();
-    if (p.timeMode === 'elapsed' || p.timeMode === 'remaining') {
-      state.timeMode = p.timeMode;
+    const saved = parseTimeMode(p.timeMode);
+    if (saved) {
+      state.timeMode = saved;
       updateTimeModeTitles();
       renderTime(lastTime.pos, lastTime.dur);
     }
@@ -503,6 +525,9 @@
       seekHandle.style.transition = 'none';
       seekFill.style.width = '0%';
       seekHandle.style.left = '0%';
+      const pos = parkSeekWithoutDuration(seek, newState);
+      stopTimeUpdater();
+      renderTime(pos, 0);
     }
 
     // Time total (only changes on track change)
@@ -783,9 +808,7 @@
       el.className = 'playlist-track' + (track.index === data.currentIndex ? ' active' : '');
       el.dataset.index = track.index;
 
-      const durMin = Math.floor(track.duration / 60);
-      const durSec = Math.floor(track.duration % 60);
-      const durStr = `${durMin}:${durSec.toString().padStart(2, '0')}`;
+      const durStr = formatTime(track.duration);
 
       const numDisplay = track.index === data.currentIndex
         ? '<svg width="12" height="12" viewBox="0 0 16 16" style="vertical-align:middle"><path d="M2 6h2.5L8 3v10L4.5 10H2V6Z" fill="currentColor"/><path d="M10.5 5.5c1 1 1 3.5 0 5" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round"/></svg>'
