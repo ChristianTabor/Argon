@@ -13,7 +13,7 @@
     <!-- Title Bar -->
     <div class="titlebar" id="titlebar">
       <div class="titlebar-drag"></div>
-      <span class="titlebar-text">Argon</span>
+      <span class="titlebar-text" id="titlebar-text" title="Double-click for windowshade">Argon</span>
       <div class="titlebar-buttons">
         <button class="titlebar-btn btn-mini" id="btn-mini" title="Windowshade (Cmd+Shift+M)">
           <svg width="10" height="10" viewBox="0 0 10 10"><rect x="1" y="3.5" width="8" height="3" rx="0.8" stroke="currentColor" stroke-width="1.2" fill="none"/></svg>
@@ -39,7 +39,7 @@
     <!-- Mini Player / Windowshade (visible only in mini mode) -->
     <div class="mini-player" id="mini-player">
       <div class="mini-drag"></div>
-      <span class="mini-title">ARGON</span>
+      <span class="mini-title" id="mini-title" title="Double-click to exit windowshade">ARGON</span>
       <button class="mini-ctrl" id="mini-prev" title="Previous">
         <svg width="10" height="10" viewBox="0 0 20 20"><rect x="2" y="4" width="2.5" height="12" rx="0.75" fill="currentColor"/><path d="M15 4L7 10L15 16V4Z" fill="currentColor"/></svg>
       </button>
@@ -84,15 +84,18 @@
         <div class="display-top">
           <div class="bitrate-display">
             <span class="display-label">KBPS</span>
-            <span class="display-value" id="display-kbps">256</span>
+            <span class="display-value" id="display-kbps">--</span>
           </div>
           <div class="freq-display">
             <span class="display-label">KHZ</span>
-            <span class="display-value" id="display-khz">44</span>
+            <span class="display-value" id="display-khz">--</span>
           </div>
           <div class="stereo-display">
-            <span class="stereo-indicator active">STEREO</span>
+            <span class="stereo-indicator">STEREO</span>
           </div>
+          <button class="favorite-btn" id="btn-favorite" title="Favorite (F)" aria-label="Favorite" aria-pressed="false" hidden>
+            <svg width="11" height="11" viewBox="0 0 16 16"><path d="M8 14.2S1.5 10 1.5 5.7A3.7 3.7 0 018 3.6a3.7 3.7 0 016.5 2.1C14.5 10 8 14.2 8 14.2z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>
+          </button>
         </div>
         <div class="track-marquee">
           <div class="marquee-content" id="marquee-text">
@@ -283,6 +286,7 @@
 
   <script src="js/visualizer.js"></script>
   <script src="js/theme-manager.js"></script>
+  <script src="js/favorite.js"></script>
   <script src="js/app.js"></script>
 </body>
 </html>

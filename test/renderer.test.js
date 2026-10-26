@@ -483,6 +483,215 @@ describe('App.js Logic', () => {
   });
 });
 
+describe('Bit rate and sample rate display', () => {
+  let html, appCode, css, formatBitRate, formatSampleRate;
+
+  beforeAll(() => {
+    html = fs.readFileSync(path.join(__dirname, '..', 'src', 'index.html'), 'utf-8');
+    appCode = fs.readFileSync(path.join(__dirname, '..', 'src', 'js', 'app.js'), 'utf-8');
+    css = fs.readFileSync(path.join(__dirname, '..', 'src', 'styles', 'base.css'), 'utf-8');
+    const grab = (name) => appCode.match(new RegExp(`function ${name}\\([\\s\\S]*?\\n  }\\n`))[0];
+    ({ formatBitRate, formatSampleRate } = new Function(
+      `${grab('formatBitRate')}${grab('formatSampleRate')} return { formatBitRate, formatSampleRate };`
+    )());
+  });
+
+  test('markup no longer hardcodes 256 and 44', () => {
+    expect(html).toMatch(/id="display-kbps">--</);
+    expect(html).toMatch(/id="display-khz">--</);
+  });
+
+  test('STEREO is static and not lit', () => {
+    expect(html).toContain('<span class="stereo-indicator">STEREO</span>');
+  });
+
+  test('values reserve width so 4-digit numbers do not shift the layout', () => {
+    expect(css).toMatch(/#display-kbps\s*{\s*min-width: 4ch/);
+  });
+
+  test('updateUI writes the rates from state', () => {
+    expect(appCode).toMatch(/function updateUI[\s\S]*?formatBitRate\(newState\.bitRate\)[\s\S]*?formatSampleRate\(newState\.sampleRate\)/);
+  });
+
+  test('formatBitRate rounds, and shows -- for unknown values', () => {
+    expect(formatBitRate(256)).toBe('256');
+    expect(formatBitRate(1411.2)).toBe('1411');
+    expect(formatBitRate(99999)).toBe('9999');
+    for (const bad of [0, null, undefined, NaN, -5, 'x']) expect(formatBitRate(bad)).toBe('--');
+  });
+
+  test('formatSampleRate shows kHz without trailing zeros', () => {
+    expect(formatSampleRate(44100)).toBe('44.1');
+    expect(formatSampleRate(48000)).toBe('48');
+    expect(formatSampleRate(96000)).toBe('96');
+    expect(formatSampleRate(192000)).toBe('192');
+    for (const bad of [0, null, undefined, NaN, -5, 'x']) expect(formatSampleRate(bad)).toBe('--');
+  });
+});
+
+describe('Favorite button', () => {
+  let html, appCode, css, themeGuide;
+
+  beforeAll(() => {
+    const read = (...p) => fs.readFileSync(path.join(__dirname, '..', ...p), 'utf-8');
+    html = read('src', 'index.html');
+    appCode = read('src', 'js', 'app.js');
+    css = read('src', 'styles', 'base.css');
+    themeGuide = read('THEME_GUIDE.md');
+  });
+
+  test('has an accessible name and pressed state, and starts hidden', () => {
+    expect(html).toMatch(/<button[^>]*id="btn-favorite"[^>]*aria-label="Favorite"[^>]*aria-pressed="false"[^>]*hidden/);
+  });
+
+  test('themes can hide it with --show-favorite', () => {
+    expect(css).toMatch(/--show-favorite:\s*flex/);
+    expect(css).toMatch(/\.favorite-btn\s*{[^}]*display:\s*var\(--show-favorite\)/);
+    expect(css).toMatch(/\.favorite-btn\[hidden\]\s*{\s*display:\s*none/);
+    expect(themeGuide).toContain('--show-favorite');
+  });
+
+  test('favorite.js loads before app.js', () => {
+    expect(html.indexOf('src="js/favorite.js"')).toBeGreaterThan(-1);
+    expect(html.indexOf('src="js/favorite.js"')).toBeLessThan(html.indexOf('src="js/app.js"'));
+  });
+
+  test('the heart is hidden while stopped or without a track ID', () => {
+    expect(appCode).toContain('btnFavorite.hidden = !state.persistentId');
+  });
+});
+
+describe('Favorite controller', () => {
+  const { createFavoriteController, isFavoriteKey } = require('../src/js/favorite.js');
+
+  // A toggle call the test settles by hand, so the track can change while it is in flight
+  function setup() {
+    const painted = [];
+    const calls = [];
+    const fav = createFavoriteController({
+      toggle: (id) => new Promise((resolve, reject) => calls.push({ id, resolve, reject })),
+      paint: (v) => painted.push(v),
+    });
+    return { fav, painted, calls };
+  }
+
+  test('click updates the heart at once and keeps the result', async () => {
+    const { fav, painted, calls } = setup();
+    fav.update('A', false);
+    const done = fav.click();
+    expect(fav.favorited).toBe(true);
+    expect(calls.map((c) => c.id)).toEqual(['A']);
+    calls[0].resolve(true);
+    await done;
+    expect(fav.favorited).toBe(true);
+    expect(painted).toEqual([false, true, true]);
+  });
+
+  test('does nothing without a track ID', async () => {
+    const { fav, calls } = setup();
+    fav.update('', false);
+    await fav.click();
+    expect(calls).toHaveLength(0);
+  });
+
+  test('a second click during the call is ignored', async () => {
+    const { fav, calls } = setup();
+    fav.update('A', false);
+    const done = fav.click();
+    await fav.click();
+    expect(calls).toHaveLength(1);
+    calls[0].resolve(true);
+    await done;
+  });
+
+  test('rolls back when the call fails', async () => {
+    const { fav, calls } = setup();
+    fav.update('A', true);
+    const done = fav.click();
+    expect(fav.favorited).toBe(false);
+    calls[0].reject(new Error('Music not running'));
+    await done;
+    expect(fav.favorited).toBe(true);
+  });
+
+  test('rolls back when Music says the track is stale', async () => {
+    const { fav, calls } = setup();
+    fav.update('A', false);
+    const done = fav.click();
+    calls[0].resolve('stale');
+    await done;
+    expect(fav.favorited).toBe(false);
+  });
+
+  test('the poll does not overwrite the heart while a toggle is in flight on the same track', async () => {
+    const { fav, calls } = setup();
+    fav.update('A', false);
+    const done = fav.click();
+    fav.update('A', false);
+    expect(fav.favorited).toBe(true);
+    calls[0].resolve(true);
+    await done;
+    expect(fav.favorited).toBe(true);
+  });
+
+  test('a track change during the call shows the new track right away', async () => {
+    const { fav, calls } = setup();
+    fav.update('A', false);
+    const done = fav.click();
+    fav.update('B', true);
+    expect(fav.id).toBe('B');
+    expect(fav.favorited).toBe(true);
+    calls[0].resolve(true);
+    await done;
+    expect(fav.favorited).toBe(true);
+  });
+
+  test('a stale result from the old track does not repaint the new one', async () => {
+    const { fav, calls } = setup();
+    fav.update('A', false);
+    const done = fav.click();
+    fav.update('B', true);
+    calls[0].resolve('stale');
+    await done;
+    expect(fav.favorited).toBe(true);
+    // The next click sends B's ID and flips B from its real value
+    const next = fav.click();
+    expect(calls[1].id).toBe('B');
+    expect(fav.favorited).toBe(false);
+    calls[1].resolve(false);
+    await next;
+  });
+
+  test('a failure from the old track does not repaint the new one', async () => {
+    const { fav, calls } = setup();
+    fav.update('A', false);
+    const done = fav.click();
+    fav.update('B', true);
+    calls[0].reject(new Error('boom'));
+    await done;
+    expect(fav.favorited).toBe(true);
+  });
+
+  test('after the call the poll drives the heart again', async () => {
+    const { fav, calls } = setup();
+    fav.update('A', false);
+    const done = fav.click();
+    calls[0].resolve(true);
+    await done;
+    fav.update('A', false);
+    expect(fav.favorited).toBe(false);
+  });
+
+  test('F toggles, but not on key repeat or with Cmd/Ctrl/Alt held', () => {
+    expect(isFavoriteKey({ code: 'KeyF' })).toBe(true);
+    expect(isFavoriteKey({ code: 'KeyF', repeat: true })).toBe(false);
+    expect(isFavoriteKey({ code: 'KeyF', metaKey: true })).toBe(false);
+    expect(isFavoriteKey({ code: 'KeyF', ctrlKey: true })).toBe(false);
+    expect(isFavoriteKey({ code: 'KeyF', altKey: true })).toBe(false);
+    expect(isFavoriteKey({ code: 'KeyG' })).toBe(false);
+  });
+});
+
 describe('Windowshade Bar', () => {
   let html, css, appCode, miniButtons;
 
@@ -543,6 +752,29 @@ describe('Windowshade Bar', () => {
   test('user-facing text calls it Windowshade', () => {
     expect(html).toContain('title="Exit Windowshade"');
     expect(html).not.toContain('Mini Mode');
+  });
+
+  describe('double-click toggle', () => {
+    test('titlebar label and windowshade label have ids to listen on', () => {
+      expect(html).toMatch(/<span class="titlebar-text" id="titlebar-text"/);
+      expect(html).toMatch(/<span class="mini-title" id="mini-title"/);
+    });
+
+    test('labels are no-drag islands, since drag regions swallow DOM mouse events', () => {
+      expect(css).toMatch(/\.titlebar-text\s*\{[^}]*-webkit-app-region:\s*no-drag/);
+      expect(css).toMatch(/\.mini-title\s*\{[^}]*-webkit-app-region:\s*no-drag/);
+      expect(css).not.toMatch(/\.mini-title\s*\{[^}]*pointer-events:\s*none/);
+    });
+
+    test('the drag regions still cover the bars', () => {
+      expect(css).toMatch(/\.titlebar-drag\s*\{[^}]*-webkit-app-region:\s*drag/);
+      expect(css).toMatch(/\.mini-drag\s*\{[^}]*-webkit-app-region:\s*drag/);
+    });
+
+    test('double-clicking the titlebar label enters windowshade, the strip label exits', () => {
+      expect(appCode).toMatch(/\$\('#titlebar-text'\)\.addEventListener\('dblclick', \(\) => \{ if \(!state\.miniMode\) toggleMiniMode\(\); \}\)/);
+      expect(appCode).toMatch(/\$\('#mini-title'\)\.addEventListener\('dblclick', \(\) => \{ if \(state\.miniMode\) toggleMiniMode\(\); \}\)/);
+    });
   });
 });
 
