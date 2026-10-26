@@ -6,11 +6,16 @@ const { appBundlePath, assertPackagedApp } = require('../scripts/package-smoke')
 
 const root = path.join(__dirname, '..');
 
-function makeApp(dir, { html, version, bundleId }) {
+function makeApp(dir, { html, version, bundleId, lib = true }) {
   const payload = path.join(dir, 'payload');
   fs.mkdirSync(path.join(payload, 'src'), { recursive: true });
   fs.writeFileSync(path.join(payload, 'main.js'), 'main');
   fs.writeFileSync(path.join(payload, 'preload.js'), 'preload');
+  if (lib) {
+    fs.mkdirSync(path.join(payload, 'lib'));
+    fs.writeFileSync(path.join(payload, 'lib', 'apple-music.js'), 'scripts');
+    fs.writeFileSync(path.join(payload, 'lib', 'theme-zip.js'), 'theme checks');
+  }
   if (html) fs.writeFileSync(path.join(payload, 'src', 'index.html'), '<html></html>');
 
   const contents = path.join(dir, 'Argon.app', 'Contents');
@@ -46,6 +51,11 @@ describe('package smoke assertions', () => {
   test('fails when src/index.html was left out of the archive', () => {
     const app = makeApp(dir, { html: false, version: '1.2.3', bundleId: 'com.tabor.argon' });
     expect(() => assertPackagedApp(app, '1.2.3')).toThrow(/src\/index\.html/);
+  });
+
+  test('fails when lib/ was left out of the archive', () => {
+    const app = makeApp(dir, { html: true, version: '1.2.3', bundleId: 'com.tabor.argon', lib: false });
+    expect(() => assertPackagedApp(app, '1.2.3')).toThrow(/lib\/apple-music\.js/);
   });
 
   test('fails when the bundle id does not match', () => {

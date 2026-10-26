@@ -30,7 +30,9 @@ function assertPackagedApp(applicationPath, expectedVersion) {
     cwd: root,
     encoding: 'utf8',
   });
-  for (const required of ['/main.js', '/preload.js', '/src/index.html']) {
+  // main.js requires lib/, so the app won't start without it
+  const requiredFiles = ['/main.js', '/preload.js', '/lib/apple-music.js', '/lib/theme-zip.js', '/src/index.html'];
+  for (const required of requiredFiles) {
     if (!asarHas(listed, required)) {
       throw new Error(`app.asar is missing ${required}`);
     }
