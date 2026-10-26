@@ -126,6 +126,12 @@ function runAppleScript(script) {
   });
 }
 
+// Bit rate / sample rate from Music: 0, "missing value" and anything non-numeric mean unknown
+function parseRate(value) {
+  const n = Number(value);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
 // ─── Apple Music IPC Handlers ────────────────────────────────────────────────
 
 ipcMain.handle('music:getState', async () => {
@@ -141,6 +147,8 @@ ipcMain.handle('music:getState', async () => {
         set playerVol to sound volume
         set isShuffling to false
         set repeatMode to "off"
+        set trackBitRate to "0"
+        set trackSampleRate to "0"
 
         if playerState is not "stopped" then
           set trackName to name of current track
@@ -150,9 +158,15 @@ ipcMain.handle('music:getState', async () => {
           set playerPos to player position
           set isShuffling to shuffle enabled
           set repeatMode to song repeat as string
+          try
+            set trackBitRate to (bit rate of current track) as string
+          end try
+          try
+            set trackSampleRate to (sample rate of current track) as string
+          end try
         end if
 
-        return playerState & "||" & trackName & "||" & trackArtist & "||" & trackAlbum & "||" & trackDuration & "||" & playerPos & "||" & playerVol & "||" & isShuffling & "||" & repeatMode
+        return playerState & "||" & trackName & "||" & trackArtist & "||" & trackAlbum & "||" & trackDuration & "||" & playerPos & "||" & playerVol & "||" & isShuffling & "||" & repeatMode & "||" & trackBitRate & "||" & trackSampleRate
       end tell
     `;
     const result = await runAppleScript(script);
@@ -167,9 +181,11 @@ ipcMain.handle('music:getState', async () => {
       volume: parseInt(parts[6]) || 50,
       shuffle: parts[7] === 'true',
       repeat: parts[8] || 'off',
+      bitRate: parseRate(parts[9]),
+      sampleRate: parseRate(parts[10]),
     };
   } catch (e) {
-    return { state: 'stopped', track: '', artist: '', album: '', duration: 0, position: 0, volume: 50, shuffle: false, repeat: 'off' };
+    return { state: 'stopped', track: '', artist: '', album: '', duration: 0, position: 0, volume: 50, shuffle: false, repeat: 'off', bitRate: null, sampleRate: null };
   }
 });
 

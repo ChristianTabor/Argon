@@ -104,7 +104,7 @@ jest.mock('child_process', () => ({
     if (args && args[1] && args[1].includes('lyrics of current track')) {
       cb(null, 'These are test lyrics\nLine two\n', '');
     } else if (args && args[1] && args[1].includes('player state')) {
-      cb(null, 'playing||Test Song||Test Artist||Test Album||240||120||75||false||off\n', '');
+      cb(null, 'playing||Test Song||Test Artist||Test Album||240||120||75||false||off||256||44100\n', '');
     } else {
       cb(null, '', '');
     }
@@ -175,6 +175,57 @@ describe('IPC Handlers Registration', () => {
   test('registers prefs IPC handlers', () => {
     expect(ipcHandlers['prefs:load']).toBeDefined();
     expect(ipcHandlers['prefs:save']).toBeDefined();
+  });
+});
+
+describe('Bit rate and sample rate', () => {
+  const { execFile } = require('child_process');
+  const stateWith = (tail) => `playing||Song||Artist||Album||240||120||75||false||off${tail}\n`;
+  const getStateWith = (tail) => {
+    execFile.mockImplementationOnce((cmd, args, opts, cb) => cb(null, stateWith(tail), ''));
+    return ipcHandlers['music:getState']();
+  };
+
+  test('music:getState returns the track bit rate and sample rate', async () => {
+    const state = await ipcHandlers['music:getState']();
+    expect(state.bitRate).toBe(256);
+    expect(state.sampleRate).toBe(44100);
+  });
+
+  test('state script appends the rates after the existing fields', async () => {
+    execFile.mockClear();
+    await ipcHandlers['music:getState']();
+    const script = execFile.mock.calls[0][1][1];
+    expect(script).toContain('bit rate of current track');
+    expect(script).toContain('sample rate of current track');
+    expect(script).toMatch(/repeatMode & "\|\|" & trackBitRate & "\|\|" & trackSampleRate\s/);
+  });
+
+  test('lossless and hi-res values pass through', async () => {
+    const state = await getStateWith('||1411||96000');
+    expect(state.bitRate).toBe(1411);
+    expect(state.sampleRate).toBe(96000);
+  });
+
+  test.each([
+    ['zero', '||0||0'],
+    ['missing value', '||missing value||missing value'],
+    ['empty', '||||'],
+    ['non-numeric', '||abc||xyz'],
+    ['absent (older output)', ''],
+  ])('unknown rates (%s) become null', async (_, tail) => {
+    const state = await getStateWith(tail);
+    expect(state.bitRate).toBeNull();
+    expect(state.sampleRate).toBeNull();
+    expect(state.track).toBe('Song');
+  });
+
+  test('an osascript failure gives null rates', async () => {
+    execFile.mockImplementationOnce((cmd, args, opts, cb) => cb(new Error('boom')));
+    const state = await ipcHandlers['music:getState']();
+    expect(state.state).toBe('stopped');
+    expect(state.bitRate).toBeNull();
+    expect(state.sampleRate).toBeNull();
   });
 });
 
