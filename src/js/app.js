@@ -404,9 +404,10 @@
     // Where the text is now (0..1), so the flip doesn't make it jump
     const timing = anim && anim.effect.getComputedTiming();
     const reversed = marqueeText.classList.toggle('reversed');
-    if (timing) {
-      marqueeText.getAnimations(); // apply the new direction before moving the clock
-      anim.currentTime = (reversed ? 1 - timing.progress : timing.progress) * timing.duration;
+    // The class change can replace the animation, so move the clock on the new one
+    const current = marqueeText.getAnimations()[0];
+    if (current && timing && typeof timing.progress === 'number') {
+      current.currentTime = (reversed ? 1 - timing.progress : timing.progress) * timing.duration;
     }
   }
 

@@ -417,6 +417,37 @@ describe('App.js Logic', () => {
       expect(anim.currentTime).toBe(2500);
     });
 
+    test('when the class change replaces the animation, the clock is set on the new one', () => {
+      const m = makeMarquee(['scrolling']);
+      const before = { effect: { getComputedTiming: () => ({ progress: 0.25, duration: 10000 }) }, currentTime: 0 };
+      const after = { effect: {}, currentTime: 0 };
+      let calls = 0;
+      m.getAnimations = () => (calls++ === 0 ? [before] : [after]);
+      const { reverseMarquee } = load(m);
+      reverseMarquee();
+      expect(after.currentTime).toBe(7500);
+      expect(before.currentTime).toBe(0);
+    });
+
+    test('a progress that is not a number leaves the clock alone', () => {
+      const m = makeMarquee(['scrolling']);
+      const anim = { effect: { getComputedTiming: () => ({ progress: null, duration: 10000 }) }, currentTime: 1234 };
+      m.getAnimations = () => [anim];
+      const { reverseMarquee } = load(m);
+      reverseMarquee();
+      expect(anim.currentTime).toBe(1234);
+      expect(m.has('reversed')).toBe(true);
+    });
+
+    test('no animation after the class change is not an error', () => {
+      const m = makeMarquee(['scrolling']);
+      const anim = { effect: { getComputedTiming: () => ({ progress: 0.5, duration: 10000 }) }, currentTime: 0 };
+      let calls = 0;
+      m.getAnimations = () => (calls++ === 0 ? [anim] : []);
+      const { reverseMarquee } = load(m);
+      expect(() => reverseMarquee()).not.toThrow();
+    });
+
     test('a new title resets paused and reversed, and starts paused for reduced motion', () => {
       expect(appCode).toMatch(/function setMarquee[\s\S]*?classList\.remove\('scrolling', 'paused', 'reversed'\)/);
       expect(appCode).toMatch(/prefers-reduced-motion: reduce[\s\S]*?classList\.add\('paused'\)/);
