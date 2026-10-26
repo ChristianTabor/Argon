@@ -14,6 +14,7 @@
   const seekTimeRight = $('#seek-time-right');
   const kbpsDisplay = $('#display-kbps');
   const khzDisplay = $('#display-khz');
+  const btnFavorite = $('#btn-favorite');
   const trackNameDisplay = $('#track-name-display');
   const trackArtistDisplay = $('#track-artist-display');
   const artworkImg = $('#artwork-img');
@@ -91,6 +92,8 @@
     prevVolume: 50,
     lastArtwork: null,
     lastTrack: '',
+    persistentId: '',
+    favorited: false,
     adaptiveTheme: false,
     playlistData: null,
     playlistLastTrack: '',
@@ -399,6 +402,18 @@
     return Number.isFinite(hz) && hz > 0 ? String(parseFloat((hz / 1000).toFixed(1))) : '--';
   }
 
+  // ─── Favorite ──────────────────────────────────────────────────────────
+  const favorite = createFavoriteController({
+    toggle: (id) => window.api.music.toggleFavorite(id),
+    paint: (favorited) => {
+      state.favorited = favorited;
+      btnFavorite.classList.toggle('active', favorited);
+      btnFavorite.setAttribute('aria-pressed', String(favorited));
+    },
+  });
+
+  btnFavorite.addEventListener('click', () => favorite.click());
+
   // ─── Update UI from State ──────────────────────────────────────────────
   function updateUI(newState) {
     const isPlaying = newState.state === 'playing';
@@ -435,6 +450,12 @@
     // Bit rate and sample rate come with the state, so there's no extra osascript call
     if (kbpsDisplay) kbpsDisplay.textContent = formatBitRate(newState.bitRate);
     if (khzDisplay) khzDisplay.textContent = formatSampleRate(newState.sampleRate);
+
+    // Favorite heart: hidden while stopped or when Music gives no track ID.
+    // It follows the polled value, except while a toggle is in flight.
+    state.persistentId = isStopped ? '' : (newState.persistentId || '');
+    btnFavorite.hidden = !state.persistentId;
+    favorite.update(state.persistentId, newState.favorited);
 
     // Album name
     if (newState.album) {
@@ -1266,6 +1287,9 @@
         break;
       case 'KeyL': toggleLyrics(); break;
       case 'KeyE': toggleEq(); break;
+      case 'KeyF':
+        if (isFavoriteKey(e)) favorite.click();
+        break;
     }
   });
 })();

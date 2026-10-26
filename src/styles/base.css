@@ -112,6 +112,7 @@
   --show-visualizer: flex;
   --show-display: block;
   --show-display-top: flex;
+  --show-favorite: flex;
   --show-album: block;
   --show-artwork: flex;
   --show-seek: flex;
@@ -310,6 +311,26 @@ button {
   color: var(--accent);
   text-shadow: 0 0 6px var(--accent-glow);
 }
+
+.favorite-btn {
+  display: var(--show-favorite);
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+  transition: color 0.2s;
+}
+
+.favorite-btn[hidden] { display: none; }
+.favorite-btn:hover { color: var(--accent); }
+
+.favorite-btn svg { fill: none; }
+.favorite-btn.active { color: var(--accent); }
+.favorite-btn.active svg { fill: var(--accent); filter: drop-shadow(0 0 4px var(--accent-glow)); }
 
 /* ─── Marquee ────────────────────────────────────────────────────────────── */
 .track-marquee {
