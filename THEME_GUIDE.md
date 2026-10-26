@@ -162,6 +162,14 @@ Show or hide any section:
 }
 ```
 
+`--show-playlist` (default `none`) is the theme's default for the playlist viewer. The **PL** button in the bottom bar (or the `P` key) overrides it for the user, in any theme. The choice is saved and kept when the theme changes. A theme that hides the playlist gets up to 220px more window height when the user turns it on (never above `--window-max-height` or the screen), and gets its old height back when the user turns it off. To remove the button from a theme:
+
+```css
+:root {
+  --show-playlist-toggle: none;  /* flex | none (PL button) */
+}
+```
+
 ### Layout Templates
 
 These variables control alternate layout modes. Mix and match to create

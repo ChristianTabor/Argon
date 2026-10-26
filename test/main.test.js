@@ -560,6 +560,67 @@ describe('Window Management', () => {
     expect(mockWindow.setSize).toHaveBeenCalled();
   });
 
+  describe('applyConstraints against the display work area', () => {
+    const { screen } = require('electron');
+    const workArea = { x: 0, y: 25, width: 1440, height: 800 };
+
+    beforeEach(() => {
+      screen.getDisplayMatching.mockReturnValue({ workArea });
+      for (const fn of [mockWindow.setSize, mockWindow.setPosition, mockWindow.setMinimumSize, mockWindow.setMaximumSize]) fn.mockClear();
+    });
+
+    afterAll(() => {
+      screen.getDisplayMatching.mockReturnValue({ workArea: { width: 1920, height: 1080, x: 0, y: 0 } });
+      mockWindow.getBounds.mockReturnValue({ x: 0, y: 0, width: 300, height: 500 });
+    });
+
+    test('a window that fits is left alone', async () => {
+      mockWindow.getBounds.mockReturnValue({ x: 100, y: 100, width: 320, height: 520 });
+      await ipcHandlers['window:applyConstraints']({}, 275, 520, 500, 1200, 320, 740);
+      expect(mockWindow.setMinimumSize).toHaveBeenLastCalledWith(275, 520);
+      expect(mockWindow.setSize).toHaveBeenCalledWith(320, 740, false);
+      expect(mockWindow.setPosition).not.toHaveBeenCalled();
+    });
+
+    test('min and target height are capped to the work area height', async () => {
+      mockWindow.getBounds.mockReturnValue({ x: 100, y: 25, width: 320, height: 520 });
+      await ipcHandlers['window:applyConstraints']({}, 280, 1100, 500, 1200, 320, 1000);
+      expect(mockWindow.setMinimumSize).toHaveBeenLastCalledWith(280, 800);
+      expect(mockWindow.setSize).toHaveBeenCalledWith(320, 800, false);
+      expect(mockWindow.setMaximumSize).toHaveBeenCalledWith(500, 1200);
+    });
+
+    test('unsnapped, the window moves up so its bottom stays inside the work area', async () => {
+      // 520px tall at y=500 grows to 740: bottom 1240 is past 825
+      mockWindow.getBounds.mockReturnValue({ x: 100, y: 500, width: 320, height: 740 });
+      await ipcHandlers['window:applyConstraints']({}, 275, 740, 500, 1200, 320, 740);
+      expect(mockWindow.setPosition).toHaveBeenCalledWith(100, 825 - 740);
+    });
+
+    test('unsnapped, it never moves above the top of the work area', async () => {
+      mockWindow.getBounds.mockReturnValue({ x: 100, y: 300, width: 320, height: 800 });
+      await ipcHandlers['window:applyConstraints']({}, 275, 1100, 500, 1200, 320, 1000);
+      expect(mockWindow.setPosition).toHaveBeenCalledWith(100, 25);
+    });
+
+    test('a window that already fits is not moved', async () => {
+      mockWindow.getBounds.mockReturnValue({ x: 100, y: 25, width: 320, height: 700 });
+      await ipcHandlers['window:applyConstraints']({}, 275, 700, 500, 1200, 320, 700);
+      expect(mockWindow.setPosition).not.toHaveBeenCalled();
+    });
+
+    test('snapped, an oversized window shrinks to the work area and sits inside it', async () => {
+      await ipcHandlers['window:snapBottomRight']();
+      mockWindow.setPosition.mockClear();
+      mockWindow.getSize.mockReturnValue([320, 800]);
+      await ipcHandlers['window:applyConstraints']({}, 280, 1100, 500, 1200, 320, 1000);
+      expect(mockWindow.setSize).toHaveBeenCalledWith(320, 800, false);
+      // bottom-right corner of the work area, top at the work area's top
+      expect(mockWindow.setPosition).toHaveBeenCalledWith(1440 - 320, 25 + 800 - 800);
+      mockWindow.getSize.mockReturnValue([300, 500]);
+    });
+  });
+
   test('window:toggleOnTop toggles always on top', async () => {
     const result = await ipcHandlers['window:toggleOnTop']();
     expect(mockWindow.setAlwaysOnTop).toHaveBeenCalled();
@@ -684,6 +745,16 @@ describe('Prefs', () => {
     fs.writeFileSync.mockClear();
     ipcHandlers['prefs:save']({}, { hideDockIcon: 'yes' });
     expect(JSON.parse(fs.writeFileSync.mock.calls[0][1]).hideDockIcon).toBe(false);
+  });
+
+  test('prefs:save keeps playlistVisible only when it is a boolean', () => {
+    const fs = require('fs');
+    fs.writeFileSync.mockClear();
+    ipcHandlers['prefs:save']({}, { playlistVisible: true });
+    expect(JSON.parse(fs.writeFileSync.mock.calls[0][1]).playlistVisible).toBe(true);
+    fs.writeFileSync.mockClear();
+    ipcHandlers['prefs:save']({}, { playlistVisible: 'yes' });
+    expect(JSON.parse(fs.writeFileSync.mock.calls[0][1])).not.toHaveProperty('playlistVisible');
   });
 
   test('prefs:save merges into saved prefs instead of clobbering main-process keys', () => {

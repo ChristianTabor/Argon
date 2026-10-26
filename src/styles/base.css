@@ -125,7 +125,8 @@
   --show-track-info: none;       /* Separate track name/artist display */
   --show-seek-times: none;       /* Inline time beside seek bar */
   --show-time-display: flex;     /* Original time display in info panel */
-  --show-playlist: none;         /* Playlist/queue viewer */
+  --show-playlist: none;         /* Playlist/queue viewer (default; the PL button overrides it) */
+  --show-playlist-toggle: flex;  /* PL button in the bottom bar */
   --controls-volume-layout: contents; /* 'contents' = separate, 'flex' = same row */
 
   /* ── Window constraints (theme-overridable) ─────── */
@@ -723,6 +724,14 @@ button {
   flex-shrink: 1;
 }
 
+/* The PL button overrides the theme's --show-playlist. Mini mode still wins (rule below, later in the file). */
+.player.playlist-forced-on .playlist-container { display: flex !important; }
+.player.playlist-forced-off .playlist-container { display: none !important; }
+/* The theme was laid out without a playlist, so give the added height to the playlist, not the artwork.
+   A wide window makes a tall square artwork: let it shrink so it cannot crush the playlist. */
+.player.playlist-forced-on .artwork-container { flex-grow: 0; flex-shrink: 1; min-height: 0; overflow: hidden; }
+.player.playlist-forced-on .playlist-container { min-height: 180px; flex-shrink: 0; }
+
 .playlist-header {
   display: flex;
   align-items: center;
@@ -845,6 +854,7 @@ button {
 /* ─── Transparency Control ──────────────────────────────────────────────── */
 .transparency-control {
   display: flex;
+  min-width: 0;
   align-items: center;
   gap: 5px;
   color: var(--text-dim);
@@ -863,6 +873,7 @@ button {
 .transparency-slider {
   -webkit-appearance: none;
   width: 48px;
+  min-width: 16px; /* gives way when the bottom bar is full */
   height: 3px;
   background: var(--bar-bg);
   border-radius: 2px;
@@ -926,6 +937,8 @@ button {
 }
 
 .bottom-btn.active { color: var(--accent); }
+
+#btn-playlist { display: var(--show-playlist-toggle); }
 
 .bottom-logo { display: flex; align-items: center; }
 

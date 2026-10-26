@@ -41,6 +41,7 @@
   const btnClose = $('#btn-close');
   const btnThemes = $('#btn-themes');
   const btnEq = $('#btn-eq');
+  const btnPlaylist = $('#btn-playlist');
   const btnCloseThemes = $('#btn-close-themes');
   const btnInstallTheme = $('#btn-install-theme');
   const btnOpenThemesFolder = $('#btn-open-themes-folder');
@@ -97,6 +98,8 @@
     adaptiveTheme: false,
     playlistData: null,
     playlistLastTrack: '',
+    playlistVisible: undefined, // true | false = user override from the PL button, undefined = follow the theme
+    playlistRestoreHeight: null, // window height from before the PL button grew it
     notifiedTrack: '',
     lyricsOpen: false,
     lyricsTrack: '',
@@ -110,14 +113,30 @@
   let volumeDragging = false;
 
   // ─── Window Constraints ───────────────────────────────────────────────
-  function applyWindowConstraints() {
+  const { resolvePlaylistVisible, playlistWindowHeights } = window.PlaylistLayout;
+
+  function playlistThemeDefault() {
+    const v = getComputedStyle(document.documentElement).getPropertyValue('--show-playlist').trim();
+    return v !== '' && v !== 'none';
+  }
+
+  // keepSize: a toggle keeps the user's size. Otherwise the window starts from the theme's base size.
+  function applyWindowConstraints(keepSize) {
     const style = getComputedStyle(document.documentElement);
     const baseW = parseInt(style.getPropertyValue('--base-width').trim()) || 300;
     const minW  = parseInt(style.getPropertyValue('--window-min-width').trim()) || 275;
     const minH  = parseInt(style.getPropertyValue('--window-min-height').trim()) || 440;
     const maxW  = parseInt(style.getPropertyValue('--window-max-width').trim()) || 800;
     const maxH  = parseInt(style.getPropertyValue('--window-max-height').trim()) || 1200;
-    window.api.window.applyConstraints(minW, minH, maxW, maxH, baseW, minH);
+    const themeDefault = playlistThemeDefault();
+    const heights = playlistWindowHeights({
+      minH, maxH, curH: window.innerHeight, themeDefault,
+      visible: resolvePlaylistVisible(themeDefault, state.playlistVisible),
+      restoreH: state.playlistRestoreHeight, keepSize,
+    });
+    state.playlistRestoreHeight = heights.restoreH;
+    const w = keepSize ? Math.min(Math.max(window.innerWidth, minW), maxW) : baseW;
+    window.api.window.applyConstraints(minW, heights.minHeight, maxW, maxH, w, heights.targetHeight);
   }
 
   // ─── CSS Transition-Based Seek ────────────────────────────────────────
@@ -227,7 +246,11 @@
 
   // ─── Theme Manager ────────────────────────────────────────────────────
   const themeManager = new ThemeManager();
+  // Restore the playlist override before the theme loads, so the first resize already has it
+  const startupPrefs = await window.api.prefs.load();
+  if (typeof startupPrefs.playlistVisible === 'boolean') state.playlistVisible = startupPrefs.playlistVisible;
   await themeManager.init();
+  updatePlaylistUI();
 
   // Check if adaptive was the saved theme
   if (themeManager.currentTheme === '_adaptive') {
@@ -332,6 +355,7 @@
       }
     }
     // Update window constraints for new theme
+    updatePlaylistUI();
     requestAnimationFrame(() => {
       applyWindowConstraints();
     });
@@ -1228,6 +1252,32 @@
     if (p.eqPreset) eqPresetSelect.value = p.eqPreset;
   })();
 
+  // ─── Playlist Toggle (PL button) ─────────────────────────────────────
+  function isPlaylistVisible() {
+    return resolvePlaylistVisible(playlistThemeDefault(), state.playlistVisible);
+  }
+
+  function updatePlaylistUI() {
+    // The classes mark only a real difference from the theme, so a matching override leaves the theme's own layout alone
+    const themeDefault = playlistThemeDefault();
+    player.classList.toggle('playlist-forced-on', state.playlistVisible === true && !themeDefault);
+    player.classList.toggle('playlist-forced-off', state.playlistVisible === false && themeDefault);
+    btnPlaylist.classList.toggle('active', isPlaylistVisible());
+  }
+
+  function togglePlaylist() {
+    if (state.miniMode) return;
+    state.playlistVisible = !isPlaylistVisible();
+    updatePlaylistUI();
+    if (state.playlistVisible && !state.playlistData) fetchPlaylist();
+    applyWindowConstraints(true);
+    // Save only this key (prefs:save merges), from the in-memory flag
+    window.api.prefs.save({ playlistVisible: state.playlistVisible });
+  }
+
+  btnPlaylist.addEventListener('click', togglePlaylist);
+  updatePlaylistUI();
+
   // ─── Mini Mode ───────────────────────────────────────────────────────
   function updateMiniPlayerUI() {
     if (!state.miniMode) return;
@@ -1358,6 +1408,9 @@
       case 'KeyE': toggleEq(); break;
       case 'KeyF':
         if (isFavoriteKey(e)) favorite.click();
+        break;
+      case 'KeyP':
+        if (!e.repeat) togglePlaylist(); // holding P must not flip it back and forth
         break;
     }
   });

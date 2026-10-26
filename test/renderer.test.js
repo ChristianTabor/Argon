@@ -33,6 +33,12 @@ describe('HTML Structure', () => {
     expect(html).toContain('title="Windowshade (Cmd+Shift+M)"');
   });
 
+  test('contains PL button in the bottom bar, next to EQ', () => {
+    expect(html).toMatch(/id="btn-playlist"[^>]*title="Playlist \(P\)"/);
+    expect(html.indexOf('id="btn-playlist"')).toBeGreaterThan(html.indexOf('class="bottom-bar"'));
+    expect(html.indexOf('id="btn-playlist"')).toBeLessThan(html.indexOf('id="btn-eq"'));
+  });
+
   test('contains lyrics panel', () => {
     expect(html).toContain('id="lyrics-panel"');
     expect(html).toContain('id="lyrics-content"');
@@ -93,6 +99,23 @@ describe('CSS Styles', () => {
     expect(css).toContain('.lyrics-content');
     expect(css).toContain('.lyrics-placeholder');
     expect(css).toContain('.lyrics-panel-close');
+  });
+
+  test('PL button overrides the theme playlist default and mini mode still wins', () => {
+    expect(css).toContain('.player.playlist-forced-on .playlist-container { display: flex !important; }');
+    expect(css).toContain('.player.playlist-forced-off .playlist-container { display: none !important; }');
+    // Equal specificity and both !important, so the later rule wins: mini mode must come last
+    expect(css.indexOf('.player.playlist-forced-off')).toBeLessThan(css.indexOf('.player.mini-mode .playlist-container'));
+  });
+
+  test('forcing the playlist on gives the added height to the playlist, and a wide artwork cannot crush it', () => {
+    expect(css).toMatch(/\.player\.playlist-forced-on \.artwork-container\s*\{[^}]*flex-grow:\s*0;[^}]*flex-shrink:\s*1;[^}]*min-height:\s*0;/);
+    expect(css).toMatch(/\.player\.playlist-forced-on \.playlist-container\s*\{[^}]*min-height:\s*180px;[^}]*flex-shrink:\s*0;/);
+  });
+
+  test('themes can hide the PL button with --show-playlist-toggle', () => {
+    expect(css).toContain('--show-playlist-toggle: flex;');
+    expect(css).toMatch(/#btn-playlist\s*\{\s*display:\s*var\(--show-playlist-toggle\)/);
   });
 
   test('contains EQ panel styles', () => {
@@ -461,6 +484,139 @@ describe('App.js Logic', () => {
       const css = fs.readFileSync(path.join(__dirname, '..', 'src', 'styles', 'base.css'), 'utf-8');
       expect(css).toMatch(/\.marquee-content\.scrolling\.paused\s*\{[^}]*animation-play-state:\s*paused/);
       expect(css).toMatch(/\.marquee-content\.scrolling\.reversed\s*\{\s*animation-direction:\s*reverse/);
+    });
+  });
+
+  describe('Playlist Toggle', () => {
+    const { resolvePlaylistVisible, playlistWindowHeights } = require('../src/js/playlist-layout.js');
+    const base = { minH: 520, maxH: 1200, themeDefault: false, visible: true, restoreH: null, keepSize: true };
+
+    test('theme default applies when there is no override, an override beats it', () => {
+      expect(resolvePlaylistVisible(true, undefined)).toBe(true);
+      expect(resolvePlaylistVisible(false, undefined)).toBe(false);
+      expect(resolvePlaylistVisible(false, true)).toBe(true);
+      expect(resolvePlaylistVisible(true, false)).toBe(false);
+    });
+
+    test('opening grows a short window to min height + 220', () => {
+      const r = playlistWindowHeights({ ...base, curH: 520 });
+      expect(r).toEqual({ minHeight: 740, targetHeight: 740, restoreH: 520 });
+    });
+
+    test('opening never shrinks a window the user made taller', () => {
+      const r = playlistWindowHeights({ ...base, curH: 1000 });
+      expect(r.targetHeight).toBe(1000);
+      expect(r.minHeight).toBe(740);
+      expect(r.restoreH).toBe(1000);
+    });
+
+    test('opening is capped at the theme max height', () => {
+      expect(playlistWindowHeights({ ...base, maxH: 600, curH: 520 }).targetHeight).toBe(600);
+      expect(playlistWindowHeights({ ...base, minH: 500, maxH: 500, curH: 500 })).toMatchObject({ minHeight: 500, targetHeight: 500 });
+    });
+
+    test('closing restores the height from before it opened', () => {
+      const r = playlistWindowHeights({ ...base, visible: false, curH: 740, restoreH: 1000 });
+      expect(r).toEqual({ minHeight: 520, targetHeight: 1000, restoreH: null });
+    });
+
+    test('a theme that shows the playlist, or a hidden playlist with nothing saved, keeps the current height', () => {
+      expect(playlistWindowHeights({ ...base, themeDefault: true, visible: true, curH: 900 }))
+        .toEqual({ minHeight: 520, targetHeight: 900, restoreH: null });
+      expect(playlistWindowHeights({ ...base, visible: false, curH: 900 }).targetHeight).toBe(900);
+    });
+
+    test('after a theme load the window starts from the theme base height', () => {
+      const open = playlistWindowHeights({ ...base, keepSize: false, curH: 1000, restoreH: 1000 });
+      expect(open).toEqual({ minHeight: 740, targetHeight: 740, restoreH: 520 });
+      expect(playlistWindowHeights({ ...base, keepSize: false, visible: false, curH: 1000 }).targetHeight).toBe(520);
+    });
+
+    test('a restored height is held inside the theme limits', () => {
+      expect(playlistWindowHeights({ ...base, visible: false, curH: 740, restoreH: 300 }).targetHeight).toBe(520);
+      expect(playlistWindowHeights({ ...base, visible: false, curH: 740, restoreH: 5000 }).targetHeight).toBe(1200);
+    });
+
+    describe('in the app', () => {
+      const { loadApp } = require('./helpers/appHarness');
+      const press = (app, init = {}) => app.keydown({ code: 'KeyP', ...init });
+
+      test('stretch to 1000, PL opens at 1000, PL again goes back to 1000', async () => {
+        const app = await loadApp({ innerHeight: 1000 });
+        app.runFrames();
+        app.win.innerHeight = 1000; // the user stretched the window after startup
+        app.listeners.byId['#btn-playlist'].click();
+        expect(app.lastResize()).toMatchObject({ minH: 740, targetH: 1000 });
+        expect(app.player.classList.contains('playlist-forced-on')).toBe(true);
+        app.listeners.byId['#btn-playlist'].click();
+        expect(app.lastResize()).toMatchObject({ minH: 520, targetH: 1000 });
+        expect(app.player.classList.contains('playlist-forced-on')).toBe(false);
+      });
+
+      test('a short window grows by the playlist, and closing shrinks it back', async () => {
+        const app = await loadApp();
+        app.runFrames();
+        press(app);
+        expect(app.lastResize()).toMatchObject({ minH: 740, targetH: 740 });
+        press(app);
+        expect(app.lastResize()).toMatchObject({ minH: 520, targetH: 520 });
+      });
+
+      test('a theme change drops the saved height', async () => {
+        const app = await loadApp();
+        app.runFrames();
+        app.win.innerHeight = 900;
+        press(app); // opens at 900, saves 900
+        app.listeners.window.themechange.forEach((fn) => fn({ detail: { themeId: 'other' } }));
+        app.runFrames(); // theme load resets to the base height + playlist
+        expect(app.lastResize()).toMatchObject({ targetH: 740 });
+        press(app);
+        expect(app.lastResize()).toMatchObject({ targetH: 520 }); // not the 900 from the old theme
+      });
+
+      test('holding P toggles once and saves once', async () => {
+        const app = await loadApp();
+        app.runFrames();
+        press(app);
+        press(app, { repeat: true });
+        press(app, { repeat: true });
+        press(app, { repeat: true });
+        expect(app.player.classList.contains('playlist-forced-on')).toBe(true);
+        expect(app.calls.prefsSave).toEqual([{ playlistVisible: true }]);
+        press(app); // a fresh press toggles again
+        expect(app.calls.prefsSave).toEqual([{ playlistVisible: true }, { playlistVisible: false }]);
+      });
+
+      test('the toggle saves only playlistVisible, never a snapshot of the other prefs', async () => {
+        const app = await loadApp({ prefs: { theme: 'x', transparency: 40 } });
+        app.runFrames();
+        press(app);
+        expect(app.calls.prefsSave).toEqual([{ playlistVisible: true }]);
+      });
+
+      test('P is ignored in mini mode', async () => {
+        const app = await loadApp({ prefs: { miniMode: true } });
+        app.runFrames();
+        const before = app.calls.prefsSave.length;
+        press(app);
+        expect(app.calls.prefsSave.length).toBe(before);
+      });
+
+      test('a saved override is applied before the first resize', async () => {
+        const app = await loadApp({ prefs: { playlistVisible: true } });
+        expect(app.calls.applyConstraints).toEqual([]); // nothing resized before the pref is known
+        app.runFrames();
+        expect(app.calls.applyConstraints).toHaveLength(1);
+        expect(app.lastResize()).toMatchObject({ minH: 740, targetH: 740 });
+        expect(app.player.classList.contains('playlist-forced-on')).toBe(true);
+      });
+
+      test('with no saved override the first resize is the theme size', async () => {
+        const app = await loadApp();
+        app.runFrames();
+        expect(app.calls.applyConstraints).toHaveLength(1);
+        expect(app.lastResize()).toMatchObject({ targetW: 320, targetH: 520 });
+      });
     });
   });
 

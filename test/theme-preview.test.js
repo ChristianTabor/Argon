@@ -233,14 +233,15 @@ describe('Theme hover preview', () => {
     expect(t.api.themes.load).toHaveBeenCalledTimes(2);
   });
 
-  test('click commits once: saves the pref, resizes, fires themechange, clears the preview', async () => {
+  test('click commits once: saves the pref, fires themechange, clears the preview', async () => {
     t.tm.schedulePreview('beta');
     jest.advanceTimersByTime(150);
     await flush();
     await t.tm.applyTheme('beta');
     expect(t.api.prefs.save).toHaveBeenCalledTimes(1);
     expect(t.api.prefs.save.mock.calls[0][0].theme).toBe('beta');
-    expect(t.api.window.applyConstraints).toHaveBeenCalledTimes(1);
+    // The app resizes the window when it hears themechange, so the theme manager doesn't resize itself
+    expect(t.api.window.applyConstraints).not.toHaveBeenCalled();
     expect(t.events.filter((e) => e.type === 'themechange')).toHaveLength(1);
     expect(t.tm.previewEl.textContent).toBe('');
     expect(t.els['theme-styles'].textContent).toBe(THEMES.beta);
