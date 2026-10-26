@@ -1103,6 +1103,12 @@ describe('Security', () => {
     expect(mainCode).toContain('sandbox: true');
   });
 
+  test('app.js swallows drops, so a dropped link or file cannot navigate the window', () => {
+    const appSource = fs.readFileSync(path.join(__dirname, '..', 'src', 'js', 'app.js'), 'utf-8');
+    expect(appSource).toMatch(/addEventListener\('dragover', \(e\) => \{\s*e\.preventDefault\(\);/);
+    expect(appSource).toContain("addEventListener('drop', (e) => e.preventDefault())");
+  });
+
   test('preload.js does not leak IPC event object', () => {
     const preloadCode = fs.readFileSync(path.join(__dirname, '..', 'preload.js'), 'utf-8');
     // Should wrap callback to strip event
