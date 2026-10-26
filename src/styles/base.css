@@ -683,8 +683,10 @@ button {
 /* The PL button overrides the theme's --show-playlist. Mini mode still wins (rule below, later in the file). */
 .player.playlist-forced-on .playlist-container { display: flex !important; }
 .player.playlist-forced-off .playlist-container { display: none !important; }
-/* The theme was laid out without a playlist, so give the added height to the playlist, not the artwork */
-.player.playlist-forced-on .artwork-container { flex-grow: 0; }
+/* The theme was laid out without a playlist, so give the added height to the playlist, not the artwork.
+   A wide window makes a tall square artwork: let it shrink so it cannot crush the playlist. */
+.player.playlist-forced-on .artwork-container { flex-grow: 0; flex-shrink: 1; min-height: 0; overflow: hidden; }
+.player.playlist-forced-on .playlist-container { min-height: 180px; flex-shrink: 0; }
 
 .playlist-header {
   display: flex;

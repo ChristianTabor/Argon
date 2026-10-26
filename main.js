@@ -31,6 +31,15 @@ function snapToBottomRight() {
   isSnapped = true;
 }
 
+// A taller window keeps its top-left, so move it up if its bottom now hangs off the work area
+function keepBottomOnScreen(workArea) {
+  const { x, y, height } = mainWindow.getBounds();
+  const bottom = workArea.y + workArea.height;
+  if (y + height <= bottom) return;
+  lastProgrammaticMove = Date.now();
+  mainWindow.setPosition(x, Math.max(workArea.y, bottom - height));
+}
+
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 300,
@@ -510,15 +519,19 @@ ipcMain.handle('window:resize', (_, w, h) => {
 });
 
 ipcMain.handle('window:applyConstraints', (_, minW, minH, maxW, maxH, targetW, targetH) => {
+  // Nothing may be taller than the work area of the display the window is on
+  const workArea = screen.getDisplayMatching(mainWindow.getBounds()).workArea;
+  const fit = (h) => Math.min(Math.round(h), workArea.height);
   // Reset min to absolute minimum first to avoid conflicts during transition
   mainWindow.setMinimumSize(200, 200);
   if (maxW && maxH) mainWindow.setMaximumSize(Math.round(maxW), Math.round(maxH));
-  if (minW && minH) mainWindow.setMinimumSize(Math.round(minW), Math.round(minH));
+  if (minW && minH) mainWindow.setMinimumSize(Math.round(minW), fit(minH));
   if (targetW && targetH) {
     lastProgrammaticMove = Date.now();
-    mainWindow.setSize(Math.round(targetW), Math.round(targetH), false);
+    mainWindow.setSize(Math.round(targetW), fit(targetH), false);
     // Re-snap to corner if window was snapped before the resize
     if (isSnapped) snapToBottomRight();
+    else keepBottomOnScreen(workArea);
   }
 });
 

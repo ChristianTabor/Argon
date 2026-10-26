@@ -89,18 +89,7 @@ class ThemeManager {
     this.styleEl.textContent = data.css;
     this.currentTheme = themeId;
 
-    // Parse window constraints directly from CSS text and resize immediately
-    const css = data.css;
-    const getProp = (name, def) => {
-      const m = css.match(new RegExp(name.replace('--', '--') + ':\\s*(\\d+)'));
-      return m ? parseInt(m[1]) : def;
-    };
-    const targetW  = getProp('--base-width',        300);
-    const minW     = getProp('--window-min-width',   275);
-    const minH     = getProp('--window-min-height',  440);
-    const maxW     = getProp('--window-max-width',   800);
-    const maxH     = getProp('--window-max-height', 1200);
-    window.api.window.applyConstraints(minW, minH, maxW, maxH, targetW, minH);
+    // The window is resized by the themechange handler in app.js, which also knows about the playlist
 
     // Update active state in list
     this.listEl.querySelectorAll('.theme-card').forEach(card => {
