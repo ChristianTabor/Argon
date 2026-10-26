@@ -2,6 +2,8 @@ const { app, BrowserWindow, ipcMain, dialog, shell, screen, globalShortcut, Tray
 const path = require('path');
 const fs = require('fs');
 const { execFile } = require('child_process');
+const scripts = require('./lib/apple-music');
+const { isUnsafeZipEntry, listZipEntries } = require('./lib/theme-zip');
 
 // Paths
 const THEMES_DIR = path.join(__dirname, 'src', 'themes');
@@ -105,10 +107,10 @@ function updatePrefs(changes) {
   savePrefs({ ...base, ...changes });
 }
 
-// AppleScript execution helper
-function runAppleScript(script) {
+// AppleScript execution helper. Extra strings are argv, after `--`.
+function runAppleScript(script, args) {
   return new Promise((resolve, reject) => {
-    execFile('osascript', ['-e', script], { timeout: 5000 }, (err, stdout, stderr) => {
+    execFile('osascript', scripts.osascriptArgs(script, args), { timeout: 5000 }, (err, stdout) => {
       if (err) reject(err);
       else resolve(stdout.trim());
     });
@@ -119,91 +121,17 @@ function runAppleScript(script) {
 
 ipcMain.handle('music:getState', async () => {
   try {
-    const script = `
-      tell application "Music"
-        set playerState to player state as string
-        set trackName to ""
-        set trackArtist to ""
-        set trackAlbum to ""
-        set trackDuration to 0
-        set playerPos to 0
-        set playerVol to sound volume
-        set isShuffling to false
-        set repeatMode to "off"
-
-        if playerState is not "stopped" then
-          set trackName to name of current track
-          set trackArtist to artist of current track
-          set trackAlbum to album of current track
-          set trackDuration to duration of current track
-          set playerPos to player position
-          set isShuffling to shuffle enabled
-          set repeatMode to song repeat as string
-        end if
-
-        return playerState & "||" & trackName & "||" & trackArtist & "||" & trackAlbum & "||" & trackDuration & "||" & playerPos & "||" & playerVol & "||" & isShuffling & "||" & repeatMode
-      end tell
-    `;
-    const result = await runAppleScript(script);
-    const parts = result.split('||');
-    return {
-      state: parts[0] || 'stopped',
-      track: parts[1] || '',
-      artist: parts[2] || '',
-      album: parts[3] || '',
-      duration: parseFloat(parts[4]) || 0,
-      position: parseFloat(parts[5]) || 0,
-      volume: parseInt(parts[6]) || 50,
-      shuffle: parts[7] === 'true',
-      repeat: parts[8] || 'off',
-    };
+    const result = await runAppleScript(scripts.playerState());
+    return scripts.parsePlayerState(result);
   } catch (e) {
-    return { state: 'stopped', track: '', artist: '', album: '', duration: 0, position: 0, volume: 50, shuffle: false, repeat: 'off' };
+    return scripts.stoppedState();
   }
 });
 
 ipcMain.handle('music:getArtwork', async () => {
   try {
-    const script = `
-      tell application "Music"
-        if player state is not stopped then
-          try
-            set artData to raw data of artwork 1 of current track
-            set artFormat to format of artwork 1 of current track
-            return artFormat as string
-          on error
-            return "none"
-          end try
-        else
-          return "none"
-        end if
-      end tell
-    `;
-    // Get artwork as temp file
     const tmpPath = path.join(app.getPath('temp'), 'winamp_artwork.jpg');
-    const artScript = `
-      tell application "Music"
-        if player state is not stopped then
-          try
-            set artData to data of artwork 1 of current track
-            set tmpFile to POSIX file "${tmpPath}"
-            set fileRef to open for access tmpFile with write permission
-            set eof fileRef to 0
-            write artData to fileRef
-            close access fileRef
-            return "${tmpPath}"
-          on error errMsg
-            try
-              close access tmpFile
-            end try
-            return "none"
-          end try
-        else
-          return "none"
-        end if
-      end tell
-    `;
-    const result = await runAppleScript(artScript);
+    const result = await runAppleScript(scripts.artworkScript(), [tmpPath]);
     if (result !== 'none' && fs.existsSync(tmpPath)) {
       const data = fs.readFileSync(tmpPath);
       return `data:image/jpeg;base64,${data.toString('base64')}`;
@@ -214,128 +142,47 @@ ipcMain.handle('music:getArtwork', async () => {
   }
 });
 
-ipcMain.handle('music:play', () => runAppleScript('tell application "Music" to play'));
-ipcMain.handle('music:pause', () => runAppleScript('tell application "Music" to pause'));
-ipcMain.handle('music:playpause', () => runAppleScript('tell application "Music" to playpause'));
-ipcMain.handle('music:next', () => runAppleScript('tell application "Music" to next track'));
-ipcMain.handle('music:prev', () => runAppleScript('tell application "Music" to previous track'));
+ipcMain.handle('music:play', () => runAppleScript(scripts.play()));
+ipcMain.handle('music:pause', () => runAppleScript(scripts.pause()));
+ipcMain.handle('music:playpause', () => runAppleScript(scripts.playpause()));
+ipcMain.handle('music:next', () => runAppleScript(scripts.next()));
+ipcMain.handle('music:prev', () => runAppleScript(scripts.previous()));
 ipcMain.handle('music:setVolume', (_, vol) => {
-  const v = Number(vol);
-  if (!Number.isFinite(v) || v < 0 || v > 100) return;
-  return runAppleScript(`tell application "Music" to set sound volume to ${Math.round(v)}`);
-});
-ipcMain.handle('music:setPosition', (_, pos) => {
-  const p = Number(pos);
-  if (!Number.isFinite(p) || p < 0) return;
-  return runAppleScript(`tell application "Music" to set player position to ${p}`);
-});
-ipcMain.handle('music:toggleShuffle', () => runAppleScript('tell application "Music" to set shuffle enabled to not shuffle enabled'));
-ipcMain.handle('music:toggleRepeat', async () => {
-  const script = `
-    tell application "Music"
-      if song repeat is off then
-        set song repeat to all
-        return "all"
-      else if song repeat is all then
-        set song repeat to one
-        return "one"
-      else
-        set song repeat to off
-        return "off"
-      end if
-    end tell
-  `;
+  const script = scripts.setVolume(vol);
+  if (!script) return;
   return runAppleScript(script);
 });
+ipcMain.handle('music:setPosition', (_, pos) => {
+  const script = scripts.setPosition(pos);
+  if (!script) return;
+  return runAppleScript(script);
+});
+ipcMain.handle('music:toggleShuffle', () => runAppleScript(scripts.toggleShuffle()));
+ipcMain.handle('music:toggleRepeat', () => runAppleScript(scripts.toggleRepeat()));
 
 ipcMain.handle('music:getPlaylist', async () => {
   try {
-    const script = `
-      tell application "Music"
-        if player state is stopped then return "stopped"
-
-        set curPlaylist to current playlist
-        set pName to name of curPlaylist
-        set tCount to count of tracks of curPlaylist
-        set curIdx to index of current track
-
-        set s to curIdx - 15
-        if s < 1 then set s to 1
-        set e to s + 29
-        if e > tCount then set e to tCount
-        if (e - s) < 29 and s > 1 then
-          set s to e - 29
-          if s < 1 then set s to 1
-        end if
-
-        set r to pName & return & curIdx & return & tCount & return & s & return
-
-        repeat with i from s to e
-          tell track i of curPlaylist
-            set tN to name
-            set tA to artist
-            set tD to duration
-          end tell
-          set r to r & i & tab & tN & tab & tA & tab & (tD as integer) & return
-        end repeat
-
-        return r
-      end tell
-    `;
     const result = await new Promise((resolve, reject) => {
-      execFile('osascript', ['-e', script], { timeout: 15000 }, (err, stdout) => {
+      execFile('osascript', scripts.osascriptArgs(scripts.playlist()), { timeout: 15000 }, (err, stdout) => {
         if (err) reject(err);
         else resolve(stdout.trim());
       });
     });
-
-    if (result === 'stopped') return null;
-
-    const lines = result.split(/\r?\n|\r/).filter(Boolean);
-    if (lines.length < 4) return null;
-
-    const playlistName = lines[0];
-    const currentIndex = parseInt(lines[1]) || 0;
-    const count = parseInt(lines[2]) || 0;
-    const startIndex = parseInt(lines[3]) || 1;
-    const tracks = lines.slice(4).map(line => {
-      const parts = line.split('\t');
-      return {
-        index: parseInt(parts[0]) || 0,
-        name: parts[1] || '',
-        artist: parts[2] || '',
-        duration: parseInt(parts[3]) || 0,
-      };
-    });
-
-    return { name: playlistName, currentIndex, count, startIndex, tracks };
+    return scripts.parsePlaylist(result);
   } catch (e) {
     return null;
   }
 });
 
 ipcMain.handle('music:playTrackIndex', (_, index) => {
-  const i = Math.round(Number(index));
-  if (!Number.isFinite(i) || i < 1) return;
-  return runAppleScript(`tell application "Music" to play track ${i} of current playlist`);
+  const script = scripts.playTrackIndex(index);
+  if (!script) return;
+  return runAppleScript(script);
 });
 
 ipcMain.handle('music:getLyrics', async () => {
   try {
-    const script = `
-      tell application "Music"
-        if player state is not stopped then
-          try
-            return lyrics of current track
-          on error
-            return ""
-          end try
-        else
-          return ""
-        end if
-      end tell
-    `;
-    return await runAppleScript(script);
+    return await runAppleScript(scripts.lyrics());
   } catch (e) {
     return '';
   }
@@ -439,8 +286,12 @@ ipcMain.handle('themes:install', async () => {
   const filePath = result.filePaths[0];
   ensureUserThemesDir();
 
-  // Extract zip to user themes
   try {
+    const zipEntries = await listZipEntries(filePath);
+    if (zipEntries.some(isUnsafeZipEntry)) {
+      return { success: false, error: 'Invalid theme: unsafe path in archive' };
+    }
+
     const themeName = path.basename(filePath, path.extname(filePath));
     const destDir = path.join(USER_THEMES_DIR, themeName);
     if (!fs.existsSync(destDir)) fs.mkdirSync(destDir, { recursive: true });

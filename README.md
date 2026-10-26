@@ -4,6 +4,7 @@ A Winamp-inspired Apple Music controller for macOS, built with Electron.
 
 Argon gives you a compact, themeable, always-on-top music controller that wraps Apple Music via AppleScript. It ships with a full theme engine, adaptive album art colors, a 10-band equalizer, lyrics display, a Winamp-style windowshade mode, and system tray integration.
 
+![CI](https://github.com/ChristianTabor/Argon/actions/workflows/ci.yml/badge.svg)
 ![Electron](https://img.shields.io/badge/Electron-28-47848F?logo=electron&logoColor=white)
 ![macOS](https://img.shields.io/badge/macOS-Sonoma+-000?logo=apple&logoColor=white)
 ![License](https://img.shields.io/badge/License-MIT-green)
