@@ -3,6 +3,12 @@
 // Responds to theme colors via CSS custom properties
 // ═══════════════════════════════════════════════════════════════════════════
 
+// Bars below this are snapped to zero once playback stops, so the loop can idle
+const VIZ_EPSILON = 0.005;
+// Pause/stop settle to flat in about 300 ms, a track boundary leaves a 150 ms gap
+const VIZ_SETTLE_FALL = 0.25;
+const VIZ_TRACK_GAP_MS = 150;
+
 class Visualizer {
   constructor(canvas) {
     this.canvas = canvas;
@@ -12,8 +18,12 @@ class Visualizer {
     this.bars = [];
     this.targetBars = [];
     this.frame = null;
-    this.isPlaying = false;
+    this.state = 'stopped'; // playing | paused | stopped | seeking
+    this.silentUntil = 0;
+    this.colors = null;
     this.barCount = 32;
+    this.hidden = document.visibilityState === 'hidden';
+    this.reducedMotion = false;
 
     // Initialize bars
     for (let i = 0; i < this.barCount; i++) {
@@ -21,9 +31,38 @@ class Visualizer {
       this.targetBars.push(0);
     }
 
+    this.refreshColors();
     this.resize();
-    window.addEventListener('resize', () => this.resize());
-    this.animate();
+    window.addEventListener('resize', () => {
+      this.resize();
+      this.start();
+    });
+
+    // Don't animate while the window is hidden or minimized
+    document.addEventListener('visibilitychange', () => {
+      this.hidden = document.visibilityState === 'hidden';
+      if (this.hidden) this.stop();
+      else this.start();
+    });
+
+    // Reduced motion renders one static frame instead of animating
+    if (typeof window.matchMedia === 'function') {
+      const query = window.matchMedia('(prefers-reduced-motion: reduce)');
+      this.reducedMotion = query.matches;
+      query.addEventListener('change', (e) => {
+        this.reducedMotion = e.matches;
+        this.start();
+      });
+    }
+
+    // Recolor when a theme, adaptive colors, transparency or text mode rewrite the styles
+    window.addEventListener('themechange', () => this.refreshColors());
+    if (typeof MutationObserver === 'function') {
+      new MutationObserver(() => this.refreshColors())
+        .observe(document.head, { childList: true, characterData: true, subtree: true });
+    }
+
+    this.start();
   }
 
   resize() {
@@ -36,38 +75,82 @@ class Visualizer {
     this.height = rect.height;
   }
 
-  getColors() {
+  // Read the --viz-color-* variables once, not on every frame
+  refreshColors() {
     const style = getComputedStyle(document.documentElement);
-    return {
+    this.colors = {
       color1: style.getPropertyValue('--viz-color-1').trim() || '#00ff41',
       color2: style.getPropertyValue('--viz-color-2').trim() || '#00d4aa',
       color3: style.getPropertyValue('--viz-color-3').trim() || '#00a8ff',
     };
+    this.start();
   }
 
   setMode(mode) {
     if (this.modes.includes(mode)) {
       this.mode = mode;
+      this.start();
     }
   }
 
   nextMode() {
     const idx = this.modes.indexOf(this.mode);
     this.mode = this.modes[(idx + 1) % this.modes.length];
+    this.start();
     return this.mode;
   }
 
-  setPlaying(playing) {
-    this.isPlaying = playing;
-    if (!playing) {
-      // Decay bars to zero
-      this.targetBars = this.targetBars.map(() => 0);
-    }
+  setState(state) {
+    if (state === this.state) return;
+    this.state = state;
+    this.start();
+  }
+
+  // A real track boundary has a beat of silence before the new energy
+  trackChanged() {
+    this.silentUntil = Date.now() + VIZ_TRACK_GAP_MS;
+    this.start();
+  }
+
+  start() {
+    if (this.frame || this.hidden) return;
+    this.frame = requestAnimationFrame(() => this.animate());
+  }
+
+  stop() {
+    if (this.frame) cancelAnimationFrame(this.frame);
+    this.frame = null;
+  }
+
+  get isActive() {
+    return this.state === 'playing' || this.state === 'seeking';
   }
 
   // Simulate audio data (since we can't access Apple Music's audio stream)
   generateData() {
-    if (!this.isPlaying) return;
+    const inGap = Date.now() < this.silentUntil;
+
+    if (!this.isActive || inGap) {
+      this.targetBars.fill(0);
+      return;
+    }
+
+    if (this.reducedMotion) {
+      // Static, low-energy frame
+      for (let i = 0; i < this.barCount; i++) {
+        const midBoost = Math.exp(-Math.pow((i - this.barCount * 0.3) / (this.barCount * 0.25), 2));
+        this.targetBars[i] = 0.08 + midBoost * 0.2;
+      }
+      return;
+    }
+
+    if (this.state === 'seeking') {
+      // Scrubbing flutters instead of following the music
+      for (let i = 0; i < this.barCount; i++) {
+        this.targetBars[i] = 0.1 + Math.random() * 0.4;
+      }
+      return;
+    }
 
     for (let i = 0; i < this.barCount; i++) {
       // Create organic-looking frequency distribution
@@ -82,21 +165,33 @@ class Visualizer {
     }
   }
 
+  // The loop idles once playback is off and every bar has settled
+  needsFrames() {
+    if (this.hidden || this.reducedMotion) return false;
+    if (this.isActive) return true;
+    return this.bars.some((b) => b > 0);
+  }
+
   animate() {
+    this.frame = null;
     this.generateData();
 
     // Smooth interpolation
+    const settling = !this.isActive || Date.now() < this.silentUntil;
     for (let i = 0; i < this.barCount; i++) {
       const diff = this.targetBars[i] - this.bars[i];
-      if (diff > 0) {
+      if (this.reducedMotion) {
+        this.bars[i] = this.targetBars[i];
+      } else if (diff > 0) {
         this.bars[i] += diff * 0.15; // Rise fast
       } else {
-        this.bars[i] += diff * 0.08; // Fall slow
+        this.bars[i] += diff * (settling ? VIZ_SETTLE_FALL : 0.08); // Fall slow
       }
+      if (settling && this.bars[i] < VIZ_EPSILON) this.bars[i] = 0;
     }
 
     this.ctx.clearRect(0, 0, this.width, this.height);
-    const colors = this.getColors();
+    const colors = this.colors;
 
     switch (this.mode) {
       case 'bars':
@@ -110,7 +205,7 @@ class Visualizer {
         break;
     }
 
-    this.frame = requestAnimationFrame(() => this.animate());
+    if (this.needsFrames()) this.start();
   }
 
   drawBars(colors) {
@@ -225,7 +320,7 @@ class Visualizer {
   }
 
   destroy() {
-    if (this.frame) cancelAnimationFrame(this.frame);
+    this.stop();
   }
 }
 
