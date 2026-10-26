@@ -413,7 +413,7 @@
 
   function setMarquee(text) {
     marqueeText.textContent = text;
-    marqueeText.classList.remove('scrolling');
+    marqueeText.classList.remove('scrolling', 'paused', 'reversed');
 
     requestAnimationFrame(() => {
       const container = marqueeText.parentElement;
@@ -422,6 +422,10 @@
         const duration = Math.max(8, text.length * 0.35);
         marqueeText.style.setProperty('--marquee-duration', `${duration}s`);
         marqueeText.classList.add('scrolling');
+        // Reduced motion: start still. A click starts it.
+        if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+          marqueeText.classList.add('paused');
+        }
       }
     });
   }
@@ -447,6 +451,31 @@
   });
 
   btnFavorite.addEventListener('click', () => favorite.click());
+
+  // Click the scrolling title to pause or resume it; Shift+click reverses it.
+  // A title that fits isn't scrolling, so clicks do nothing.
+  function toggleMarqueePause() {
+    if (!marqueeText.classList.contains('scrolling')) return;
+    marqueeText.classList.toggle('paused');
+  }
+
+  function reverseMarquee() {
+    if (!marqueeText.classList.contains('scrolling')) return;
+    const anim = marqueeText.getAnimations()[0];
+    // Where the text is now (0..1), so the flip doesn't make it jump
+    const timing = anim && anim.effect.getComputedTiming();
+    const reversed = marqueeText.classList.toggle('reversed');
+    // The class change can replace the animation, so move the clock on the new one
+    const current = marqueeText.getAnimations()[0];
+    if (current && timing && typeof timing.progress === 'number') {
+      current.currentTime = (reversed ? 1 - timing.progress : timing.progress) * timing.duration;
+    }
+  }
+
+  marqueeText.parentElement.addEventListener('click', (e) => {
+    if (e.shiftKey) reverseMarquee();
+    else toggleMarqueePause();
+  });
 
   // ─── Update UI from State ──────────────────────────────────────────────
   function updateUI(newState) {

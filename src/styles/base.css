@@ -360,7 +360,18 @@ button {
 
 .marquee-content.scrolling {
   animation: marquee var(--marquee-duration, 12s) linear infinite;
+  cursor: pointer;
 }
+
+/* Click to pause: the animation holds its place and the glow dims */
+.marquee-content.scrolling.paused {
+  animation-play-state: paused;
+  text-shadow: none;
+  opacity: 0.8;
+}
+
+/* Shift+click */
+.marquee-content.scrolling.reversed { animation-direction: reverse; }
 
 @keyframes marquee {
   0%   { transform: translateX(0); }
