@@ -2,6 +2,9 @@
 // Theme Manager — Load, switch, and manage themes with category tabs
 // ═══════════════════════════════════════════════════════════════════════════
 
+// Color-only custom properties a hover preview may apply
+const PREVIEW_COLOR_VARS = /^--(?:bg-[\w-]+|text-[\w-]+|accent(?:-[\w-]+)?|border(?:-accent)?|viz-(?:bg|color-\d+)|titlebar-(?:bg|text)|panel-bg|logo-(?:accent-)?color|ctrl-(?:bg|hover|active)|bar-(?:bg|fill|handle)|glow|shadow|artwork-(?:border|shadow))$/;
+
 class ThemeManager {
   constructor() {
     this.currentTheme = null;
@@ -94,13 +97,21 @@ class ThemeManager {
     return this.themeCache.get(themeId);
   }
 
-  // Keep only the color custom properties: the :root blocks, minus window sizing.
-  // Layout rules (section order, visibility) are left out so the player doesn't jump.
+  // Keep only the color custom properties from the :root blocks. Layout lives in variables
+  // too (--order-*, --show-*, sizes, fonts), so an allowlist keeps the player from jumping.
   colorsOnly(css) {
     const blocks = css.match(/:root\s*\{[^}]*\}/g) || [];
-    return blocks
-      .map(block => block.replace(/^\s*--(?:window-|base-)[\w-]*:[^;]*;?[ \t]*\n?/gm, ''))
-      .join('\n');
+    const decls = [];
+    for (const block of blocks) {
+      const body = block.slice(block.indexOf('{') + 1, -1);
+      for (const decl of body.split(';')) {
+        const colon = decl.indexOf(':');
+        if (colon < 0) continue;
+        const name = decl.slice(0, colon).trim();
+        if (PREVIEW_COLOR_VARS.test(name)) decls.push(`${name}: ${decl.slice(colon + 1).trim()};`);
+      }
+    }
+    return decls.length ? `:root {\n  ${decls.join('\n  ')}\n}` : '';
   }
 
   async previewTheme(themeId) {

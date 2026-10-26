@@ -313,14 +313,13 @@
     reapplyOverrides();
   });
 
-  // Re-cache colors and re-apply transparency + text mode for the theme now showing
+  // Re-cache colors and re-apply transparency + text mode for the theme now showing.
+  // All in one turn: the transparency CSS is cleared only to read the theme's own colors
+  // and rewritten before the next paint, so the window never flashes opaque.
   function reapplyOverrides() {
-    transparencyStyleEl.textContent = '';
-    requestAnimationFrame(() => {
-      cacheBgColors();
-      if (bgOpacity < 1) applyBgTransparency(bgOpacity);
-      if (darkTextMode) applyDarkTextMode(true);
-    });
+    cacheBgColors();
+    if (bgOpacity < 1) applyBgTransparency(bgOpacity);
+    if (darkTextMode) applyDarkTextMode(true);
   }
 
   // Theme hover preview: nothing is saved, and the window is not resized

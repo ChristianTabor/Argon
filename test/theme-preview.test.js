@@ -12,6 +12,8 @@ const appCode = fs.readFileSync(path.join(__dirname, '..', 'src', 'js', 'app.js'
 const THEMES = {
   alpha: ':root {\n  --accent: #111111;\n  --base-width: 320;\n  --window-min-width: 275;\n}\n.titlebar { display: none; }',
   beta: ':root {\n  --accent: #222222;\n  --window-max-height: 900;\n}\n.playlist-container { order: -1; }',
+  // Layout variables live next to the colors, like Sakura and Terminal Green
+  layout: ':root {\n  --bg-primary: #101010;\n  --text-primary: #fafafa;\n  --accent-glow: rgba(1, 2, 3, 0.4);\n  --viz-color-1: #ff0000;\n  --border-accent: rgba(255, 0, 0, 0.2);\n  --artwork-shadow: 0 4px 24px rgba(0, 0, 0, 0.4);\n  --order-titlebar: 0;\n  --order-display: 2;\n  --show-display: none;\n  --show-track-info: flex;\n  --font-ui: Helvetica;\n  --fs-time: 12px;\n  --radius: 8px;\n  --display-padding: 9px;\n  --controls-volume-layout: row;\n  --ctrl-playpause-icon: 18px;\n  --titlebar-height: 30px;\n}\n:root {\n  --order-seek: 5;\n  --logo-color: #00ff00;\n}',
   gamma: ':root {\n  --accent: #333333;\n}',
 };
 
@@ -101,6 +103,21 @@ describe('Theme hover preview', () => {
     await t.tm.previewTheme('beta');
     expect(t.tm.previewEl.textContent).not.toContain('--window-max-height');
     expect(t.tm.previewEl.textContent).not.toContain('playlist');
+  });
+
+  test('preview drops layout variables and keeps the colors', async () => {
+    t.tm.currentTheme = 'gamma';
+    await t.tm.previewTheme('layout');
+    const css = t.tm.previewEl.textContent;
+    for (const kept of ['--bg-primary: #101010', '--text-primary: #fafafa', '--accent-glow: rgba(1, 2, 3, 0.4)',
+      '--viz-color-1: #ff0000', '--border-accent: rgba(255, 0, 0, 0.2)', '--artwork-shadow: 0 4px 24px rgba(0, 0, 0, 0.4)',
+      '--logo-color: #00ff00']) {
+      expect(css).toContain(kept);
+    }
+    for (const dropped of ['--order-', '--show-', '--font-', '--fs-', '--radius', 'padding', '--controls-volume-layout',
+      '--ctrl-playpause-icon', '--titlebar-height']) {
+      expect(css).not.toContain(dropped);
+    }
   });
 
   test('preview never resizes the window, saves prefs, or fires themechange', async () => {
@@ -306,10 +323,75 @@ describe('Theme hover preview', () => {
   });
 });
 
+// Pull a function out of app.js by name so the real code runs against mocks
+function extractFunction(name) {
+  const start = appCode.indexOf(`function ${name}(`);
+  let i = appCode.indexOf('{', start);
+  let depth = 0;
+  for (; i < appCode.length; i++) {
+    if (appCode[i] === '{') depth++;
+    else if (appCode[i] === '}' && --depth === 0) break;
+  }
+  return appCode.slice(start, i + 1);
+}
+
+describe('reapplyOverrides during a preview', () => {
+  function build({ opacity, vars }) {
+    const writes = [];
+    const transparencyStyleEl = {
+      _text: '',
+      get textContent() { return this._text; },
+      set textContent(v) { this._text = v; writes.push(v); },
+    };
+    const rafCalls = [];
+    const env = {
+      transparencyStyleEl,
+      bgOpacity: opacity,
+      originalBgColors: {},
+      darkTextMode: false,
+      document: { documentElement: { offsetHeight: 0 } },
+      getComputedStyle: () => ({ getPropertyValue: (n) => vars[n] || '' }),
+      requestAnimationFrame: (fn) => { rafCalls.push(fn); },
+      window: { api: { window: { setVibrancy: jest.fn() } } },
+      applyDarkTextMode: jest.fn(),
+    };
+    const body = ['parseColor', 'cacheBgColors', 'applyBgTransparency', 'reapplyOverrides']
+      .map(extractFunction).join('\n');
+    // bgOpacity/originalBgColors are `let`s in app.js: expose them through accessors
+    const fn = new Function('env', `
+      const { transparencyStyleEl, document, getComputedStyle, requestAnimationFrame, window, applyDarkTextMode } = env;
+      let bgOpacity = env.bgOpacity; let originalBgColors = {}; let darkTextMode = env.darkTextMode;
+      ${body}
+      return { reapplyOverrides, applyBgTransparency };
+    `);
+    return { ...fn(env), writes, rafCalls, el: transparencyStyleEl };
+  }
+
+  const VARS = { '--bg-primary': '#102030', '--bg-secondary': 'rgb(1, 2, 3)', '--titlebar-bg': 'rgba(4, 5, 6, 0.5)' };
+
+  test('below 100% the opacity override is rewritten in the same turn, with no frame in between', () => {
+    const t = build({ opacity: 0.6, vars: VARS });
+    t.applyBgTransparency(0.6);
+    t.reapplyOverrides(); // what themepreview does when a preview starts or is cancelled
+    expect(t.rafCalls).toHaveLength(0);
+    expect(t.el.textContent).toContain('--bg-primary: rgba(16, 32, 48, 0.6) !important');
+    expect(t.el.textContent).toContain('--titlebar-bg: rgba(4, 5, 6, 0.3) !important');
+    // The last write leaves the override on, so no paint can see it cleared
+    expect(t.writes[t.writes.length - 1]).not.toBe('');
+  });
+
+  test('at 100% a preview leaves no override', () => {
+    const t = build({ opacity: 1, vars: VARS });
+    t.reapplyOverrides();
+    expect(t.el.textContent).toBe('');
+  });
+});
+
 describe('Theme preview wiring in app.js', () => {
   test('re-applies transparency and dark text for previews and after cancel', () => {
     expect(appCode).toContain("window.addEventListener('themepreview'");
     expect(appCode).toContain('function reapplyOverrides()');
+    expect(extractFunction('reapplyOverrides')).not.toContain('requestAnimationFrame');
   });
 
   test('builds adaptive preview colors from the artwork without touching committed styles', () => {
