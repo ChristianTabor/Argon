@@ -55,6 +55,11 @@ function createWindow() {
   mainWindow.loadFile(path.join(__dirname, 'src', 'index.html'));
   mainWindow.setAlwaysOnTop(false);
 
+  // Keep the window on Argon's own page. A link or file dropped on it would otherwise load
+  // there, and the page would get the preload API.
+  mainWindow.webContents.on('will-navigate', (e) => e.preventDefault());
+  mainWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+
   // Detect manual drags to clear snap state
   mainWindow.on('move', () => {
     if (Date.now() - lastProgrammaticMove < 500) return;
@@ -424,6 +429,23 @@ ipcMain.handle('themes:load', (_, themeId) => {
   return null;
 });
 
+// Theme folder names follow the themes:load rule. Without it, a zip named "..zip" or "...zip"
+// resolves to the themes folder or userData itself, which a failed install then deletes.
+function isSafeThemeName(name) {
+  return typeof name === 'string' && name.length > 0 && name !== '.' && !/[\/\\]|\.\./.test(name);
+}
+
+// Zips can carry symlinks, and loading the theme would read whatever they point at
+function containsSymlink(dir) {
+  for (const entry of fs.readdirSync(dir)) {
+    const entryPath = path.join(dir, entry);
+    const stat = fs.lstatSync(entryPath);
+    if (stat.isSymbolicLink()) return true;
+    if (stat.isDirectory() && containsSymlink(entryPath)) return true;
+  }
+  return false;
+}
+
 ipcMain.handle('themes:install', async () => {
   const result = await dialog.showOpenDialog(mainWindow, {
     title: 'Install Theme',
@@ -442,6 +464,9 @@ ipcMain.handle('themes:install', async () => {
   // Extract zip to user themes
   try {
     const themeName = path.basename(filePath, path.extname(filePath));
+    if (!isSafeThemeName(themeName)) {
+      return { success: false, error: 'Invalid theme: rename the file and try again' };
+    }
     const destDir = path.join(USER_THEMES_DIR, themeName);
     if (!fs.existsSync(destDir)) fs.mkdirSync(destDir, { recursive: true });
 
@@ -451,6 +476,12 @@ ipcMain.handle('themes:install', async () => {
         else resolve();
       });
     });
+
+    // Before anything follows them: the nested-folder step below would read through a link
+    if (containsSymlink(destDir)) {
+      fs.rmSync(destDir, { recursive: true });
+      return { success: false, error: 'Invalid theme: it contains links to other files' };
+    }
 
     // Verify theme.json exists
     if (!fs.existsSync(path.join(destDir, 'theme.json'))) {

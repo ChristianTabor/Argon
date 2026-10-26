@@ -9,7 +9,7 @@ const mockWindow = {
   loadFile: jest.fn(),
   setAlwaysOnTop: jest.fn(),
   on: jest.fn(),
-  webContents: { send: jest.fn(), openDevTools: jest.fn() },
+  webContents: { send: jest.fn(), openDevTools: jest.fn(), on: jest.fn(), setWindowOpenHandler: jest.fn() },
   isVisible: jest.fn(() => true),
   isFocused: jest.fn(() => true),
   isDestroyed: jest.fn(() => false),
@@ -111,6 +111,7 @@ jest.mock('fs', () => ({
   writeFileSync: jest.fn(),
   readdirSync: jest.fn(() => []),
   statSync: jest.fn(() => ({ isDirectory: () => false })),
+  lstatSync: jest.fn(() => ({ isSymbolicLink: () => false, isDirectory: () => false })),
   rmSync: jest.fn(),
 }));
 
@@ -348,6 +349,65 @@ describe('Security — Input Validation', () => {
     const call = mockNotification.mock.calls[0][0];
     expect(call.title.length).toBeLessThanOrEqual(200);
     expect(call.body.length).toBeLessThanOrEqual(500);
+  });
+});
+
+describe('Security — window and theme install', () => {
+  const THEMES = '/tmp/argon-test-userData/themes';
+  const pickFile = (filePath) => require('electron').dialog.showOpenDialog
+    .mockResolvedValueOnce({ canceled: false, filePaths: [filePath] });
+
+  afterEach(() => {
+    const fs = require('fs');
+    fs.existsSync.mockImplementation(() => false);
+    fs.readdirSync.mockImplementation(() => []);
+    fs.lstatSync.mockImplementation(() => ({ isSymbolicLink: () => false, isDirectory: () => false }));
+    fs.readFileSync.mockImplementation(() => '{}');
+  });
+
+  test('the window refuses navigation and new windows', () => {
+    const onNavigate = mockWindow.webContents.on.mock.calls.find((c) => c[0] === 'will-navigate')[1];
+    const event = { preventDefault: jest.fn() };
+    onNavigate(event, 'https://example.com');
+    expect(event.preventDefault).toHaveBeenCalled();
+    const openHandler = mockWindow.webContents.setWindowOpenHandler.mock.calls[0][0];
+    expect(openHandler({ url: 'https://example.com' })).toEqual({ action: 'deny' });
+  });
+
+  test.each(['..zip', '...zip'])('themes:install refuses a zip named %s without unzipping or deleting anything', async (name) => {
+    const fs = require('fs');
+    const { execFile } = require('child_process');
+    execFile.mockClear();
+    fs.rmSync.mockClear();
+    pickFile(`/Users/someone/Downloads/${name}`);
+    const result = await ipcHandlers['themes:install']();
+    expect(result).toEqual({ success: false, error: expect.stringContaining('rename the file') });
+    expect(execFile).not.toHaveBeenCalled();
+    expect(fs.rmSync).not.toHaveBeenCalled();
+  });
+
+  test('themes:install removes a theme that contains a symlink, and only that theme', async () => {
+    const fs = require('fs');
+    fs.rmSync.mockClear();
+    fs.readdirSync.mockImplementation((dir) => (dir === `${THEMES}/Evil` ? ['theme.css'] : []));
+    fs.lstatSync.mockImplementation(() => ({ isSymbolicLink: () => true, isDirectory: () => false }));
+    pickFile('/Users/someone/Downloads/Evil.zip');
+    const result = await ipcHandlers['themes:install']();
+    expect(result).toEqual({ success: false, error: expect.stringContaining('links to other files') });
+    expect(fs.rmSync).toHaveBeenCalledTimes(1);
+    expect(fs.rmSync).toHaveBeenCalledWith(`${THEMES}/Evil`, { recursive: true });
+  });
+
+  test('themes:install still installs a normal theme', async () => {
+    const fs = require('fs');
+    fs.rmSync.mockClear();
+    fs.existsSync.mockImplementation((p) => p === `${THEMES}/Nice/theme.json`);
+    fs.readdirSync.mockImplementation((dir) => (dir === `${THEMES}/Nice` ? ['theme.css', 'theme.json'] : []));
+    fs.readFileSync.mockImplementation((p) => (p === `${THEMES}/Nice/theme.json` ? '{"name":"Nice"}' : '{}'));
+    pickFile('/Users/someone/Downloads/Nice.zip');
+    const result = await ipcHandlers['themes:install']();
+    expect(result).toEqual({ success: true, themeId: 'Nice', name: 'Nice' });
+    expect(fs.rmSync).not.toHaveBeenCalled();
   });
 });
 
