@@ -124,6 +124,8 @@ function parseRate(value) {
 
 // ─── Apple Music IPC Handlers ────────────────────────────────────────────────
 
+const PERSISTENT_ID_RE = /^[0-9A-F]{16}$/i;
+
 ipcMain.handle('music:getState', async () => {
   try {
     const script = `
@@ -157,7 +159,7 @@ ipcMain.handle('music:getState', async () => {
             set trackSampleRate to (sample rate of current track) as string
           end try
           try
-            set trackPersistentId to persistent ID of current track
+            set trackPersistentId to (persistent ID of current track) as string
           end try
           try
             set trackFavorited to (favorited of current track) as string
@@ -181,7 +183,7 @@ ipcMain.handle('music:getState', async () => {
       repeat: parts[8] || 'off',
       bitRate: parseRate(parts[9]),
       sampleRate: parseRate(parts[10]),
-      persistentId: parts[11] || '',
+      persistentId: PERSISTENT_ID_RE.test(parts[11]) ? parts[11] : '',
       favorited: parts[12] === 'true',
     };
   } catch (e) {
@@ -191,7 +193,6 @@ ipcMain.handle('music:getState', async () => {
 
 // Toggles `favorited` on the current track, but only if it's still the track the user saw.
 // Returns the new value (true/false) or 'stale' when the track changed in the meantime.
-const PERSISTENT_ID_RE = /^[0-9A-F]{16}$/i;
 const TOGGLE_FAVORITE_SCRIPT = `
   on run argv
     tell application "Music"

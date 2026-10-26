@@ -242,7 +242,6 @@ describe('Favorite', () => {
     execFile.mockClear();
     await ipcHandlers['music:getState']();
     const script = execFile.mock.calls[0][1][1];
-    expect(script).toMatch(/try\s+set trackPersistentId to persistent ID of current track\s+end try/);
     expect(script).toMatch(/try\s+set trackFavorited to \(favorited of current track\) as string\s+end try/);
     expect(script).toMatch(/trackSampleRate & "\|\|" & trackPersistentId & "\|\|" & trackFavorited\s/);
   });
@@ -254,6 +253,23 @@ describe('Favorite', () => {
     execFile.mockImplementationOnce((cmd, args, opts, cb) => cb(null, `playing||S||A||B||240||1||75||false||off${tail}\n`, ''));
     const state = await ipcHandlers['music:getState']();
     expect(state.favorited).toBe(false);
+  });
+
+  test.each([
+    ['the text "missing value"', 'missing value'],
+    ['a short ID', 'ABC123'],
+    ['non-hex text', 'ZZZZZZZZZZZZZZZZ'],
+  ])('state with %s as the ID gives no persistentId', async (_, id) => {
+    execFile.mockImplementationOnce((cmd, args, opts, cb) => cb(null, `playing||S||A||B||240||1||75||false||off||1||1||${id}||true\n`, ''));
+    const state = await ipcHandlers['music:getState']();
+    expect(state.persistentId).toBe('');
+  });
+
+  test('state script coerces the persistent ID to text inside its try', async () => {
+    execFile.mockClear();
+    await ipcHandlers['music:getState']();
+    const script = execFile.mock.calls[0][1][1];
+    expect(script).toMatch(/try\s+set trackPersistentId to \(persistent ID of current track\) as string\s+end try/);
   });
 
   test('passes the ID through argv, never inside the script', async () => {

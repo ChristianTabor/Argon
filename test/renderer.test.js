@@ -438,24 +438,144 @@ describe('Favorite button', () => {
     expect(themeGuide).toContain('--show-favorite');
   });
 
-  test('is hidden while stopped or without a track ID', () => {
-    expect(appCode).toMatch(/state\.persistentId = isStopped \? '' : \(newState\.persistentId \|\| ''\)/);
+  test('favorite.js loads before app.js', () => {
+    expect(html.indexOf('src="js/favorite.js"')).toBeGreaterThan(-1);
+    expect(html.indexOf('src="js/favorite.js"')).toBeLessThan(html.indexOf('src="js/app.js"'));
+  });
+
+  test('the heart is hidden while stopped or without a track ID', () => {
     expect(appCode).toContain('btnFavorite.hidden = !state.persistentId');
   });
+});
 
-  test('toggles through the API with the polled ID, and rolls back on stale or error', () => {
-    expect(appCode).toMatch(/window\.api\.music\.toggleFavorite\(id\)/);
-    expect(appCode).toMatch(/typeof result === 'boolean' \? result : previous/);
-    expect(appCode).toMatch(/catch \(e\) {\s*setFavoriteUI\(previous\)/);
-    expect(appCode).toContain("btnFavorite.addEventListener('click', toggleFavorite)");
+describe('Favorite controller', () => {
+  const { createFavoriteController, isFavoriteKey } = require('../src/js/favorite.js');
+
+  // A toggle call the test settles by hand, so the track can change while it is in flight
+  function setup() {
+    const painted = [];
+    const calls = [];
+    const fav = createFavoriteController({
+      toggle: (id) => new Promise((resolve, reject) => calls.push({ id, resolve, reject })),
+      paint: (v) => painted.push(v),
+    });
+    return { fav, painted, calls };
+  }
+
+  test('click updates the heart at once and keeps the result', async () => {
+    const { fav, painted, calls } = setup();
+    fav.update('A', false);
+    const done = fav.click();
+    expect(fav.favorited).toBe(true);
+    expect(calls.map((c) => c.id)).toEqual(['A']);
+    calls[0].resolve(true);
+    await done;
+    expect(fav.favorited).toBe(true);
+    expect(painted).toEqual([false, true, true]);
   });
 
-  test('the poll does not overwrite the heart while a toggle is in flight', () => {
-    expect(appCode).toContain('if (!favoritePending) setFavoriteUI(!!newState.favorited)');
+  test('does nothing without a track ID', async () => {
+    const { fav, calls } = setup();
+    fav.update('', false);
+    await fav.click();
+    expect(calls).toHaveLength(0);
   });
 
-  test('F key toggles it, but not with Cmd/Ctrl/Alt held', () => {
-    expect(appCode).toMatch(/case 'KeyF':\s*if \(!e\.metaKey && !e\.ctrlKey && !e\.altKey\) toggleFavorite\(\)/);
+  test('a second click during the call is ignored', async () => {
+    const { fav, calls } = setup();
+    fav.update('A', false);
+    const done = fav.click();
+    await fav.click();
+    expect(calls).toHaveLength(1);
+    calls[0].resolve(true);
+    await done;
+  });
+
+  test('rolls back when the call fails', async () => {
+    const { fav, calls } = setup();
+    fav.update('A', true);
+    const done = fav.click();
+    expect(fav.favorited).toBe(false);
+    calls[0].reject(new Error('Music not running'));
+    await done;
+    expect(fav.favorited).toBe(true);
+  });
+
+  test('rolls back when Music says the track is stale', async () => {
+    const { fav, calls } = setup();
+    fav.update('A', false);
+    const done = fav.click();
+    calls[0].resolve('stale');
+    await done;
+    expect(fav.favorited).toBe(false);
+  });
+
+  test('the poll does not overwrite the heart while a toggle is in flight on the same track', async () => {
+    const { fav, calls } = setup();
+    fav.update('A', false);
+    const done = fav.click();
+    fav.update('A', false);
+    expect(fav.favorited).toBe(true);
+    calls[0].resolve(true);
+    await done;
+    expect(fav.favorited).toBe(true);
+  });
+
+  test('a track change during the call shows the new track right away', async () => {
+    const { fav, calls } = setup();
+    fav.update('A', false);
+    const done = fav.click();
+    fav.update('B', true);
+    expect(fav.id).toBe('B');
+    expect(fav.favorited).toBe(true);
+    calls[0].resolve(true);
+    await done;
+    expect(fav.favorited).toBe(true);
+  });
+
+  test('a stale result from the old track does not repaint the new one', async () => {
+    const { fav, calls } = setup();
+    fav.update('A', false);
+    const done = fav.click();
+    fav.update('B', true);
+    calls[0].resolve('stale');
+    await done;
+    expect(fav.favorited).toBe(true);
+    // The next click sends B's ID and flips B from its real value
+    const next = fav.click();
+    expect(calls[1].id).toBe('B');
+    expect(fav.favorited).toBe(false);
+    calls[1].resolve(false);
+    await next;
+  });
+
+  test('a failure from the old track does not repaint the new one', async () => {
+    const { fav, calls } = setup();
+    fav.update('A', false);
+    const done = fav.click();
+    fav.update('B', true);
+    calls[0].reject(new Error('boom'));
+    await done;
+    expect(fav.favorited).toBe(true);
+  });
+
+  test('after the call the poll drives the heart again', async () => {
+    const { fav, calls } = setup();
+    fav.update('A', false);
+    const done = fav.click();
+    calls[0].resolve(true);
+    await done;
+    fav.update('A', false);
+    expect(fav.favorited).toBe(false);
+  });
+
+  test('F toggles, but not on key repeat or with Cmd/Ctrl/Alt held', () => {
+    expect(isFavoriteKey({ code: 'KeyF' })).toBe(true);
+    expect(isFavoriteKey({ code: 'KeyF', repeat: true })).toBe(false);
+    expect(isFavoriteKey({ code: 'KeyF', metaKey: true })).toBe(false);
+    expect(isFavoriteKey({ code: 'KeyF', ctrlKey: true })).toBe(false);
+    expect(isFavoriteKey({ code: 'KeyF', altKey: true })).toBe(false);
+    expect(isFavoriteKey({ code: 'KeyG' })).toBe(false);
   });
 });
 

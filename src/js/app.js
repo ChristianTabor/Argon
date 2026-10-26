@@ -403,31 +403,16 @@
   }
 
   // ─── Favorite ──────────────────────────────────────────────────────────
-  let favoritePending = false;
+  const favorite = createFavoriteController({
+    toggle: (id) => window.api.music.toggleFavorite(id),
+    paint: (favorited) => {
+      state.favorited = favorited;
+      btnFavorite.classList.toggle('active', favorited);
+      btnFavorite.setAttribute('aria-pressed', String(favorited));
+    },
+  });
 
-  function setFavoriteUI(favorited) {
-    state.favorited = favorited;
-    btnFavorite.classList.toggle('active', favorited);
-    btnFavorite.setAttribute('aria-pressed', String(favorited));
-  }
-
-  // Updates optimistically, then rolls back if the call fails or the track has changed
-  async function toggleFavorite() {
-    const id = state.persistentId;
-    if (!id || favoritePending) return;
-    favoritePending = true;
-    const previous = state.favorited;
-    setFavoriteUI(!previous);
-    try {
-      const result = await window.api.music.toggleFavorite(id);
-      setFavoriteUI(typeof result === 'boolean' ? result : previous);
-    } catch (e) {
-      setFavoriteUI(previous);
-    }
-    favoritePending = false;
-  }
-
-  btnFavorite.addEventListener('click', toggleFavorite);
+  btnFavorite.addEventListener('click', () => favorite.click());
 
   // ─── Update UI from State ──────────────────────────────────────────────
   function updateUI(newState) {
@@ -470,7 +455,7 @@
     // It follows the polled value, except while a toggle is in flight.
     state.persistentId = isStopped ? '' : (newState.persistentId || '');
     btnFavorite.hidden = !state.persistentId;
-    if (!favoritePending) setFavoriteUI(!!newState.favorited);
+    favorite.update(state.persistentId, newState.favorited);
 
     // Album name
     if (newState.album) {
@@ -1303,7 +1288,7 @@
       case 'KeyL': toggleLyrics(); break;
       case 'KeyE': toggleEq(); break;
       case 'KeyF':
-        if (!e.metaKey && !e.ctrlKey && !e.altKey) toggleFavorite();
+        if (isFavoriteKey(e)) favorite.click();
         break;
     }
   });
