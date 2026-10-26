@@ -433,6 +433,82 @@ describe('Windowshade Bar', () => {
   });
 });
 
+describe('Time Display Toggle', () => {
+  let html, css, appCode, formatTime, formatTimeReadout;
+
+  beforeAll(() => {
+    html = fs.readFileSync(path.join(__dirname, '..', 'src', 'index.html'), 'utf-8');
+    css = fs.readFileSync(path.join(__dirname, '..', 'src', 'styles', 'base.css'), 'utf-8');
+    appCode = fs.readFileSync(path.join(__dirname, '..', 'src', 'js', 'app.js'), 'utf-8');
+    // Pull the two pure helpers out of app.js so the real code is what gets tested
+    const grab = (name) => appCode.match(new RegExp(`  function ${name}\\([^)]*\\) \\{\\n[\\s\\S]*?\\n  \\}\\n`))[0];
+    ({ formatTime, formatTimeReadout } = new Function(
+      `${grab('formatTime')}\n${grab('formatTimeReadout')}\nreturn { formatTime, formatTimeReadout };`
+    )());
+  });
+
+  test('elapsed shows position, remaining shows a negative countdown', () => {
+    expect(formatTimeReadout(83, 204, 'elapsed')).toBe('1:23');
+    expect(formatTimeReadout(83, 204, 'remaining')).toBe('-2:01');
+  });
+
+  test('elapsed plus remaining adds up to the total shown', () => {
+    // 200.37s track: total reads 3:20, so at 1.2s remaining must be 3:19, not 3:20
+    expect(formatTime(200.37)).toBe('3:20');
+    expect(formatTimeReadout(1.2, 200.37, 'remaining')).toBe('-3:19');
+  });
+
+  test('long tracks show hours in both modes', () => {
+    expect(formatTime(3723)).toBe('1:02:03');
+    expect(formatTimeReadout(3723, 7200, 'elapsed')).toBe('1:02:03');
+    expect(formatTimeReadout(3723, 7200, 'remaining')).toBe('-57:57');
+    expect(formatTimeReadout(60, 7200, 'remaining')).toBe('-1:59:00');
+    expect(formatTime(59)).toBe('0:59');
+    expect(formatTime(600)).toBe('10:00');
+  });
+
+  test('remaining never shows -0:00 and never goes below zero', () => {
+    expect(formatTimeReadout(204, 204, 'remaining')).toBe('0:00');
+    expect(formatTimeReadout(203.9, 204, 'remaining')).toBe('-0:01');
+    expect(formatTimeReadout(210, 204, 'remaining')).toBe('0:00');
+    expect(formatTimeReadout(0, 0, 'remaining')).toBe('0:00');
+    expect(formatTimeReadout(NaN, undefined, 'remaining')).toBe('0:00');
+  });
+
+  test('an unknown mode falls back to elapsed', () => {
+    expect(formatTimeReadout(83, 204, 'bogus')).toBe('1:23');
+    expect(formatTimeReadout(83, 204, undefined)).toBe('1:23');
+  });
+
+  test('every position readout goes through renderTime', () => {
+    expect((appCode.match(/timeCurrent\.textContent\s*=/g) || []).length).toBe(1);
+    expect((appCode.match(/seekTimeLeft\.textContent\s*=/g) || []).length).toBe(1);
+    expect((appCode.match(/renderTime\(/g) || []).length).toBeGreaterThanOrEqual(4);
+  });
+
+  test('clicking either readout toggles, and the choice is saved', () => {
+    expect(appCode).toContain("timeDisplay.addEventListener('click', toggleTimeMode)");
+    expect(appCode).toContain("seekTimeLeft.addEventListener('click', toggleTimeMode)");
+    expect(appCode).toMatch(/prefs\.timeMode = state\.timeMode;[\s\S]*?prefs\.save\(prefs\)/);
+  });
+
+  test('a saved mode is restored only if it is a known value', () => {
+    expect(appCode).toMatch(/p\.timeMode === 'elapsed' \|\| p\.timeMode === 'remaining'/);
+    expect(appCode).toMatch(/timeMode: 'elapsed'/);
+  });
+
+  test('toggling re-renders from the last position so paused time updates at once', () => {
+    expect(appCode).toMatch(/function toggleTimeMode\(\)[\s\S]*?renderTime\(lastTime\.pos, lastTime\.dur\)/);
+  });
+
+  test('both readouts look clickable', () => {
+    expect(css).toMatch(/\.time-display\s*\{[^}]*cursor:\s*pointer/);
+    expect(css).toMatch(/\.seek-time-left\s*\{[^}]*cursor:\s*pointer/);
+    expect(html).toContain('id="time-display"');
+    expect(html).toContain('id="seek-time-left"');
+  });
+});
+
 describe('Security', () => {
   let html, themeManagerCode;
 

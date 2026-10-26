@@ -8,6 +8,7 @@
   const player = $('#player');
   const marqueeText = $('#marquee-text');
   const albumDisplay = $('#album-display');
+  const timeDisplay = $('#time-display');
   const timeCurrent = $('#time-current');
   const timeTotal = $('#time-total');
   const seekTimeLeft = $('#seek-time-left');
@@ -98,6 +99,7 @@
     eqOpen: false,
     eqBands: [0,0,0,0,0,0,0,0,0,0],
     miniMode: false,
+    timeMode: 'elapsed', // 'elapsed' | 'remaining' (click the time to toggle)
   };
 
   // Drag state (declared early — referenced by updateUI before seek/volume sections)
@@ -163,9 +165,7 @@
       seekHandle.style.left = `${pct}%`;
       stopTimeUpdater();
 
-      const timeStr = formatTime(posSec);
-      timeCurrent.textContent = timeStr;
-      seekTimeLeft.textContent = timeStr;
+      renderTime(posSec, durSec);
     }
   }
 
@@ -179,9 +179,7 @@
       }
       const elapsed = (performance.now() - seek.startedAt) / 1000;
       const displayPos = Math.min(seek.startPos + elapsed, seek.duration);
-      const timeStr = formatTime(displayPos);
-      timeCurrent.textContent = timeStr;
-      seekTimeLeft.textContent = timeStr;
+      renderTime(displayPos, seek.duration);
       if (state.miniMode && seek.duration > 0) {
         miniSeekFill.style.width = `${(displayPos / seek.duration) * 100}%`;
       }
@@ -367,10 +365,60 @@
   // ─── Formatting ────────────────────────────────────────────────────────
   function formatTime(seconds) {
     if (!seconds || seconds < 0) return '0:00';
-    const m = Math.floor(seconds / 60);
+    const h = Math.floor(seconds / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
     const s = Math.floor(seconds % 60);
-    return `${m}:${s.toString().padStart(2, '0')}`;
+    const ss = s.toString().padStart(2, '0');
+    return h > 0 ? `${h}:${m.toString().padStart(2, '0')}:${ss}` : `${m}:${ss}`;
   }
+
+  // Elapsed ('1:23') or remaining ('-2:01', Winamp-style). Whole seconds, so elapsed + remaining
+  // always adds up to the total shown, and the end of a track reads '0:00', never '-0:00'.
+  function formatTimeReadout(posSec, durSec, mode) {
+    if (mode !== 'remaining') return formatTime(posSec);
+    const left = Math.max(0, Math.floor(durSec || 0) - Math.floor(posSec || 0));
+    return left > 0 ? `-${formatTime(left)}` : '0:00';
+  }
+
+  // The one place the position readouts are written (classic display and inline seek time)
+  let lastTime = { pos: 0, dur: 0 };
+  function renderTime(posSec, durSec) {
+    lastTime = { pos: posSec, dur: durSec };
+    const str = formatTimeReadout(posSec, durSec, state.timeMode);
+    timeCurrent.textContent = str;
+    seekTimeLeft.textContent = str;
+  }
+
+  function updateTimeModeTitles() {
+    const tip = state.timeMode === 'remaining' ? 'Click to show elapsed time' : 'Click to show remaining time';
+    timeDisplay.title = tip;
+    seekTimeLeft.title = tip;
+  }
+
+  function toggleTimeMode() {
+    state.timeMode = state.timeMode === 'remaining' ? 'elapsed' : 'remaining';
+    updateTimeModeTitles();
+    renderTime(lastTime.pos, lastTime.dur);
+    (async () => {
+      const prefs = await window.api.prefs.load();
+      prefs.timeMode = state.timeMode;
+      await window.api.prefs.save(prefs);
+    })();
+  }
+
+  timeDisplay.addEventListener('click', toggleTimeMode);
+  seekTimeLeft.addEventListener('click', toggleTimeMode);
+  updateTimeModeTitles();
+
+  // Restore the saved mode (ignore anything but the two known values)
+  (async () => {
+    const p = await window.api.prefs.load();
+    if (p.timeMode === 'elapsed' || p.timeMode === 'remaining') {
+      state.timeMode = p.timeMode;
+      updateTimeModeTitles();
+      renderTime(lastTime.pos, lastTime.dur);
+    }
+  })();
 
   function setMarquee(text) {
     marqueeText.textContent = text;
@@ -819,9 +867,7 @@
     seekFill.style.width = `${pct * 100}%`;
     seekHandle.style.left = `${pct * 100}%`;
     const pos = pct * seek.duration;
-    const timeStr = formatTime(pos);
-    timeCurrent.textContent = timeStr;
-    seekTimeLeft.textContent = timeStr;
+    renderTime(pos, seek.duration);
     return pct;
   }
 
