@@ -252,6 +252,14 @@ describe('Tray', () => {
 });
 
 describe('Window Management', () => {
+  test('window cannot zoom or go fullscreen, so a titlebar double-click only toggles windowshade', () => {
+    const { BrowserWindow } = require('electron');
+    const opts = BrowserWindow.mock.calls[0][0];
+    expect(opts.maximizable).toBe(false);
+    expect(opts.fullscreenable).toBe(false);
+    expect(opts.resizable).toBe(true);
+  });
+
   test('window:applyConstraints sets min/max/size', async () => {
     await ipcHandlers['window:applyConstraints']({}, 200, 56, 600, 56, 320, 56);
     expect(mockWindow.setMinimumSize).toHaveBeenCalled();

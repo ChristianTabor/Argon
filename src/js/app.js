@@ -1174,6 +1174,9 @@
   }
 
   btnMini.addEventListener('click', toggleMiniMode);
+  // Double-click the titlebar label to enter windowshade, the windowshade label to exit
+  $('#titlebar-text').addEventListener('dblclick', () => { if (!state.miniMode) toggleMiniMode(); });
+  $('#mini-title').addEventListener('dblclick', () => { if (state.miniMode) toggleMiniMode(); });
   miniExpand.addEventListener('click', () => { if (state.miniMode) toggleMiniMode(); });
   miniPrev.addEventListener('click', () => window.api.music.prev());
   miniNext.addEventListener('click', () => window.api.music.next());

@@ -431,6 +431,29 @@ describe('Windowshade Bar', () => {
     expect(html).toContain('title="Exit Windowshade"');
     expect(html).not.toContain('Mini Mode');
   });
+
+  describe('double-click toggle', () => {
+    test('titlebar label and windowshade label have ids to listen on', () => {
+      expect(html).toMatch(/<span class="titlebar-text" id="titlebar-text"/);
+      expect(html).toMatch(/<span class="mini-title" id="mini-title"/);
+    });
+
+    test('labels are no-drag islands, since drag regions swallow DOM mouse events', () => {
+      expect(css).toMatch(/\.titlebar-text\s*\{[^}]*-webkit-app-region:\s*no-drag/);
+      expect(css).toMatch(/\.mini-title\s*\{[^}]*-webkit-app-region:\s*no-drag/);
+      expect(css).not.toMatch(/\.mini-title\s*\{[^}]*pointer-events:\s*none/);
+    });
+
+    test('the drag regions still cover the bars', () => {
+      expect(css).toMatch(/\.titlebar-drag\s*\{[^}]*-webkit-app-region:\s*drag/);
+      expect(css).toMatch(/\.mini-drag\s*\{[^}]*-webkit-app-region:\s*drag/);
+    });
+
+    test('double-clicking the titlebar label enters windowshade, the strip label exits', () => {
+      expect(appCode).toMatch(/\$\('#titlebar-text'\)\.addEventListener\('dblclick', \(\) => \{ if \(!state\.miniMode\) toggleMiniMode\(\); \}\)/);
+      expect(appCode).toMatch(/\$\('#mini-title'\)\.addEventListener\('dblclick', \(\) => \{ if \(state\.miniMode\) toggleMiniMode\(\); \}\)/);
+    });
+  });
 });
 
 describe('Security', () => {
