@@ -168,7 +168,7 @@ class Visualizer {
   // The loop idles once playback is off and every bar has settled
   needsFrames() {
     if (this.hidden || this.reducedMotion) return false;
-    if (this.isActive || Date.now() < this.silentUntil) return true;
+    if (this.isActive) return true;
     return this.bars.some((b) => b > 0);
   }
 

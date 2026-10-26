@@ -163,8 +163,11 @@ describe('Visualizer playback state', () => {
   test('a track change while paused does not keep the loop alive', () => {
     t = setup();
     t.viz.setState('paused');
-    t.viz.trackChanged();
     t.run(30);
+    expect(t.frames.length).toBe(0);
+    t.viz.trackChanged();
+    // One redraw at most; the silence gap must not hold the loop open
+    t.run(1);
     expect(t.frames.length).toBe(0);
   });
 });
@@ -292,13 +295,19 @@ describe('Visualizer wiring in app.js', () => {
   });
 
   test('saves and restores the visualizer mode', () => {
-    expect(appCode).toContain('prefs.visualizer = mode');
+    expect(appCode).toContain('prefs.save({ visualizer: viz.nextMode() })');
+    expect(appCode).not.toContain('prefs.visualizer = mode');
     expect(appCode).toContain('viz.setMode(p.visualizer)');
+  });
+
+  test('the startup restore yields to a mode the user already picked', () => {
+    expect(appCode).toMatch(/if \(p\.visualizer && !vizModeChosen\) viz\.setMode\(p\.visualizer\)/);
+    expect(appCode).toMatch(/function cycleVizMode\(\) \{\s*vizModeChosen = true;/);
   });
 
   test('button and V key both go through the persisting cycle function', () => {
     expect(appCode).toContain("vizModeToggle.addEventListener('click', cycleVizMode)");
-    expect(appCode).toMatch(/case\s*'KeyV':\s*cycleVizMode\(\)/);
+    expect(appCode).toMatch(/case\s*'KeyV':\s*if \(!e\.repeat\) cycleVizMode\(\)/);
     expect(appCode).not.toContain('viz.nextMode(); break');
   });
 });

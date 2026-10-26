@@ -207,17 +207,17 @@
     rewinding: 'seeking',
   };
 
-  // Restore the saved visualizer mode
+  // Restore the saved visualizer mode, unless the user already picked one
+  let vizModeChosen = false;
   (async () => {
     const p = await window.api.prefs.load();
-    if (p.visualizer) viz.setMode(p.visualizer);
+    if (p.visualizer && !vizModeChosen) viz.setMode(p.visualizer);
   })();
 
-  async function cycleVizMode() {
-    const mode = viz.nextMode();
-    const prefs = await window.api.prefs.load();
-    prefs.visualizer = mode;
-    await window.api.prefs.save(prefs);
+  function cycleVizMode() {
+    vizModeChosen = true;
+    // prefs:save merges, so only the mode goes out
+    window.api.prefs.save({ visualizer: viz.nextMode() });
   }
 
   // ─── Theme Manager ────────────────────────────────────────────────────
@@ -1265,7 +1265,9 @@
         themeManager.toggle();
         btnThemes.classList.toggle('active', themeManager.isOpen);
         break;
-      case 'KeyV': cycleVizMode(); break;
+      case 'KeyV':
+        if (!e.repeat) cycleVizMode();
+        break;
       case 'KeyD':
         if (btnTextMode) btnTextMode.click();
         break;
