@@ -47,6 +47,10 @@ function createWindow() {
     titleBarStyle: 'hidden',
     trafficLightPosition: { x: -100, y: -100 },
     resizable: true,
+    // Frameless drag areas can pick up the OS titlebar double-click action (zoom);
+    // double-click is Argon's windowshade toggle, so keep the window from zooming
+    maximizable: false,
+    fullscreenable: false,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
