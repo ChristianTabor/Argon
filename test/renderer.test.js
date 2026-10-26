@@ -416,6 +416,49 @@ describe('Bit rate and sample rate display', () => {
   });
 });
 
+describe('Favorite button', () => {
+  let html, appCode, css, themeGuide;
+
+  beforeAll(() => {
+    const read = (...p) => fs.readFileSync(path.join(__dirname, '..', ...p), 'utf-8');
+    html = read('src', 'index.html');
+    appCode = read('src', 'js', 'app.js');
+    css = read('src', 'styles', 'base.css');
+    themeGuide = read('THEME_GUIDE.md');
+  });
+
+  test('has an accessible name and pressed state, and starts hidden', () => {
+    expect(html).toMatch(/<button[^>]*id="btn-favorite"[^>]*aria-label="Favorite"[^>]*aria-pressed="false"[^>]*hidden/);
+  });
+
+  test('themes can hide it with --show-favorite', () => {
+    expect(css).toMatch(/--show-favorite:\s*flex/);
+    expect(css).toMatch(/\.favorite-btn\s*{[^}]*display:\s*var\(--show-favorite\)/);
+    expect(css).toMatch(/\.favorite-btn\[hidden\]\s*{\s*display:\s*none/);
+    expect(themeGuide).toContain('--show-favorite');
+  });
+
+  test('is hidden while stopped or without a track ID', () => {
+    expect(appCode).toMatch(/state\.persistentId = isStopped \? '' : \(newState\.persistentId \|\| ''\)/);
+    expect(appCode).toContain('btnFavorite.hidden = !state.persistentId');
+  });
+
+  test('toggles through the API with the polled ID, and rolls back on stale or error', () => {
+    expect(appCode).toMatch(/window\.api\.music\.toggleFavorite\(id\)/);
+    expect(appCode).toMatch(/typeof result === 'boolean' \? result : previous/);
+    expect(appCode).toMatch(/catch \(e\) {\s*setFavoriteUI\(previous\)/);
+    expect(appCode).toContain("btnFavorite.addEventListener('click', toggleFavorite)");
+  });
+
+  test('the poll does not overwrite the heart while a toggle is in flight', () => {
+    expect(appCode).toContain('if (!favoritePending) setFavoriteUI(!!newState.favorited)');
+  });
+
+  test('F key toggles it, but not with Cmd/Ctrl/Alt held', () => {
+    expect(appCode).toMatch(/case 'KeyF':\s*if \(!e\.metaKey && !e\.ctrlKey && !e\.altKey\) toggleFavorite\(\)/);
+  });
+});
+
 describe('Windowshade Bar', () => {
   let html, css, appCode, miniButtons;
 

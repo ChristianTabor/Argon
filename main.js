@@ -106,9 +106,10 @@ function updatePrefs(changes) {
 }
 
 // AppleScript execution helper
-function runAppleScript(script) {
+// Extra args reach the script's `on run argv`, so values are never interpolated into the source
+function runAppleScript(script, args = []) {
   return new Promise((resolve, reject) => {
-    execFile('osascript', ['-e', script], { timeout: 5000 }, (err, stdout, stderr) => {
+    execFile('osascript', args.length ? ['-e', script, '--', ...args] : ['-e', script], { timeout: 5000 }, (err, stdout, stderr) => {
       if (err) reject(err);
       else resolve(stdout.trim());
     });
@@ -138,6 +139,8 @@ ipcMain.handle('music:getState', async () => {
         set repeatMode to "off"
         set trackBitRate to "0"
         set trackSampleRate to "0"
+        set trackPersistentId to ""
+        set trackFavorited to "false"
 
         if playerState is not "stopped" then
           set trackName to name of current track
@@ -153,9 +156,15 @@ ipcMain.handle('music:getState', async () => {
           try
             set trackSampleRate to (sample rate of current track) as string
           end try
+          try
+            set trackPersistentId to persistent ID of current track
+          end try
+          try
+            set trackFavorited to (favorited of current track) as string
+          end try
         end if
 
-        return playerState & "||" & trackName & "||" & trackArtist & "||" & trackAlbum & "||" & trackDuration & "||" & playerPos & "||" & playerVol & "||" & isShuffling & "||" & repeatMode & "||" & trackBitRate & "||" & trackSampleRate
+        return playerState & "||" & trackName & "||" & trackArtist & "||" & trackAlbum & "||" & trackDuration & "||" & playerPos & "||" & playerVol & "||" & isShuffling & "||" & repeatMode & "||" & trackBitRate & "||" & trackSampleRate & "||" & trackPersistentId & "||" & trackFavorited
       end tell
     `;
     const result = await runAppleScript(script);
@@ -172,10 +181,37 @@ ipcMain.handle('music:getState', async () => {
       repeat: parts[8] || 'off',
       bitRate: parseRate(parts[9]),
       sampleRate: parseRate(parts[10]),
+      persistentId: parts[11] || '',
+      favorited: parts[12] === 'true',
     };
   } catch (e) {
-    return { state: 'stopped', track: '', artist: '', album: '', duration: 0, position: 0, volume: 50, shuffle: false, repeat: 'off', bitRate: null, sampleRate: null };
+    return { state: 'stopped', track: '', artist: '', album: '', duration: 0, position: 0, volume: 50, shuffle: false, repeat: 'off', bitRate: null, sampleRate: null, persistentId: '', favorited: false };
   }
+});
+
+// Toggles `favorited` on the current track, but only if it's still the track the user saw.
+// Returns the new value (true/false) or 'stale' when the track changed in the meantime.
+const PERSISTENT_ID_RE = /^[0-9A-F]{16}$/i;
+const TOGGLE_FAVORITE_SCRIPT = `
+  on run argv
+    tell application "Music"
+      set t to current track
+      if persistent ID of t is not (item 1 of argv) then return "stale"
+      set favorited of t to not (favorited of t)
+      return favorited of t as string
+    end tell
+  end run
+`;
+
+ipcMain.handle('music:toggleFavorite', async (_, persistentId) => {
+  if (typeof persistentId !== 'string' || !PERSISTENT_ID_RE.test(persistentId)) {
+    throw new Error('Invalid track ID');
+  }
+  const result = await runAppleScript(TOGGLE_FAVORITE_SCRIPT, [persistentId]);
+  if (result === 'true') return true;
+  if (result === 'false') return false;
+  if (result === 'stale') return 'stale';
+  throw new Error('Unexpected response from Music');
 });
 
 ipcMain.handle('music:getArtwork', async () => {

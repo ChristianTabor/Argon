@@ -97,7 +97,7 @@ jest.mock('child_process', () => ({
     if (args && args[1] && args[1].includes('lyrics of current track')) {
       cb(null, 'These are test lyrics\nLine two\n', '');
     } else if (args && args[1] && args[1].includes('player state')) {
-      cb(null, 'playing||Test Song||Test Artist||Test Album||240||120||75||false||off||256||44100\n', '');
+      cb(null, 'playing||Test Song||Test Artist||Test Album||240||120||75||false||off||256||44100||E65C8AA0BE4E15B0||true\n', '');
     } else {
       cb(null, '', '');
     }
@@ -132,6 +132,7 @@ describe('IPC Handlers Registration', () => {
       'music:playpause', 'music:next', 'music:prev', 'music:setVolume',
       'music:setPosition', 'music:toggleShuffle', 'music:toggleRepeat',
       'music:getPlaylist', 'music:playTrackIndex', 'music:getLyrics',
+      'music:toggleFavorite',
     ];
     for (const handler of musicHandlers) {
       expect(ipcHandlers[handler]).toBeDefined();
@@ -219,6 +220,84 @@ describe('Bit rate and sample rate', () => {
     expect(state.state).toBe('stopped');
     expect(state.bitRate).toBeNull();
     expect(state.sampleRate).toBeNull();
+  });
+});
+
+describe('Favorite', () => {
+  const { execFile } = require('child_process');
+  const ID = 'E65C8AA0BE4E15B0';
+  const answerOnce = (out) => execFile.mockImplementationOnce((cmd, args, opts, cb) => cb(null, out + '\n', ''));
+
+  test('registers the toggle handler', () => {
+    expect(ipcHandlers['music:toggleFavorite']).toBeDefined();
+  });
+
+  test('music:getState returns the persistent ID and favorited flag', async () => {
+    const state = await ipcHandlers['music:getState']();
+    expect(state.persistentId).toBe(ID);
+    expect(state.favorited).toBe(true);
+  });
+
+  test('state script reads persistent ID and favorited last, each in a try', async () => {
+    execFile.mockClear();
+    await ipcHandlers['music:getState']();
+    const script = execFile.mock.calls[0][1][1];
+    expect(script).toMatch(/try\s+set trackPersistentId to persistent ID of current track\s+end try/);
+    expect(script).toMatch(/try\s+set trackFavorited to \(favorited of current track\) as string\s+end try/);
+    expect(script).toMatch(/trackSampleRate & "\|\|" & trackPersistentId & "\|\|" & trackFavorited\s/);
+  });
+
+  test.each([
+    ['false', '||1||1||ABCDEF0123456789||false', false],
+    ['missing ID', '||1||1||||false', false],
+  ])('state with %s reads favorited=false', async (_, tail) => {
+    execFile.mockImplementationOnce((cmd, args, opts, cb) => cb(null, `playing||S||A||B||240||1||75||false||off${tail}\n`, ''));
+    const state = await ipcHandlers['music:getState']();
+    expect(state.favorited).toBe(false);
+  });
+
+  test('passes the ID through argv, never inside the script', async () => {
+    execFile.mockClear();
+    answerOnce('true');
+    await ipcHandlers['music:toggleFavorite'](null, ID);
+    const [cmd, args] = execFile.mock.calls[0];
+    expect(cmd).toBe('osascript');
+    expect(args.slice(2)).toEqual(['--', ID]);
+    expect(args[1]).not.toContain(ID);
+    expect(args[1]).toContain('on run argv');
+    expect(args[1]).toContain('persistent ID of t is not (item 1 of argv)');
+    expect(args[1]).toContain('set favorited of t to not (favorited of t)');
+  });
+
+  test('returns the new value, or stale', async () => {
+    answerOnce('true');
+    expect(await ipcHandlers['music:toggleFavorite'](null, ID)).toBe(true);
+    answerOnce('false');
+    expect(await ipcHandlers['music:toggleFavorite'](null, ID.toLowerCase())).toBe(false);
+    answerOnce('stale');
+    expect(await ipcHandlers['music:toggleFavorite'](null, ID)).toBe('stale');
+  });
+
+  test('rejects unexpected output and osascript failures', async () => {
+    answerOnce('banana');
+    await expect(ipcHandlers['music:toggleFavorite'](null, ID)).rejects.toThrow();
+    execFile.mockImplementationOnce((cmd, args, opts, cb) => cb(new Error('Music not running')));
+    await expect(ipcHandlers['music:toggleFavorite'](null, ID)).rejects.toThrow('Music not running');
+  });
+
+  test.each([
+    ['empty', ''],
+    ['too short', 'ABC123'],
+    ['too long', ID + '0'],
+    ['non-hex', 'ZZZZZZZZZZZZZZZZ'],
+    ['injection', '"; do shell script "x'],
+    ['number', 123],
+    ['undefined', undefined],
+    ['object', { id: ID }],
+  ])('rejects an invalid ID (%s) without running osascript', async (_, bad) => {
+    execFile.mockClear();
+    await expect(ipcHandlers['music:toggleFavorite'](null, bad)).rejects.toThrow('Invalid track ID');
+    expect(execFile).not.toHaveBeenCalled();
   });
 });
 
