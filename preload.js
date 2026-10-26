@@ -17,6 +17,7 @@ contextBridge.exposeInMainWorld('api', {
     getPlaylist: () => ipcRenderer.invoke('music:getPlaylist'),
     playTrackIndex: (index) => ipcRenderer.invoke('music:playTrackIndex', index),
     getLyrics: () => ipcRenderer.invoke('music:getLyrics'),
+    toggleFavorite: (persistentId) => ipcRenderer.invoke('music:toggleFavorite', persistentId),
   },
 
   // Theme management

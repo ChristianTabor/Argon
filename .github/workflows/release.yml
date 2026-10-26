@@ -46,6 +46,16 @@ jobs:
               --ignore="THEME_GUIDE\.md"
           done
 
+      # Packaging changes Electron's app, which breaks its signature, and macOS reports an app
+      # with a broken signature as damaged. An ad-hoc signature is valid, so a download opens
+      # after the usual Open Anyway. Developer ID signing and notarization come later.
+      - name: Sign the apps (ad hoc)
+        run: |
+          for app in dist/Argon-darwin-*/Argon.app; do
+            codesign --force --deep --sign - "$app"
+            codesign --verify --deep --strict "$app"
+          done
+
       - name: Create ZIP archives
         run: |
           cd dist
