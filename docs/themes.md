@@ -62,6 +62,17 @@ To keep theme files from injecting CSS, each color must be either:
 Anything else, including `rgb()`, `hsl()` and gradients, is shown as `#111`. Without a
 `preview` array the card uses Classic Winamp's colors.
 
+### Hover preview
+
+Hovering a card (or tabbing to it) for 150 ms previews the theme's colors in the player. Clicking
+the card applies it. A preview takes only the color variables from the theme's `:root` blocks:
+`--bg-*`, `--text-*`, `--accent*`, `--border`, `--border-accent`, `--viz-bg`, `--viz-color-N`,
+`--titlebar-bg`, `--titlebar-text`, `--panel-bg`, `--logo-color`, `--logo-accent-color`,
+`--ctrl-bg`, `--ctrl-hover`, `--ctrl-active`, `--bar-bg`, `--bar-fill`, `--bar-handle`, `--glow`,
+`--shadow`, `--artwork-border` and `--artwork-shadow`. Layout, sizes, fonts and selector rules
+wait for the click, so the window doesn't jump or resize while you browse. Moving off the card,
+pressing Escape, closing the panel or switching to another app ends the preview.
+
 ### Album Adaptive
 
 **Album Adaptive** is always the first card under **All**. It isn't a folder and you can't
@@ -201,6 +212,7 @@ Show or hide any section:
   --show-visualizer: flex;   /* flex | none */
   --show-display: block;     /* block | none */
   --show-display-top: flex;  /* flex | none (KBPS/KHZ/STEREO row) */
+  --show-favorite: flex;     /* flex | none (heart button in the KBPS/KHZ/STEREO row) */
   --show-album: block;       /* block | none */
   --show-artwork: flex;      /* flex | none */
   --show-seek: flex;         /* flex | none */
@@ -208,6 +220,14 @@ Show or hide any section:
   --show-controls-secondary: flex; /* flex | none (shuffle/repeat) */
   --show-volume: flex;       /* flex | none */
   --show-bottom: flex;       /* flex | none */
+}
+```
+
+`--show-playlist` (default `none`) is the theme's default for the playlist viewer. The **PL** button in the bottom bar (or the `P` key) overrides it for the user, in any theme. The choice is saved and kept when the theme changes. A theme that hides the playlist gets up to 220px more window height when the user turns it on (never above `--window-max-height` or the screen), and gets its old height back when the user turns it off. To remove the button from a theme:
+
+```css
+:root {
+  --show-playlist-toggle: none;  /* flex | none (PL button) */
 }
 ```
 
@@ -311,6 +331,13 @@ cd my-awesome-theme && zip -r ../my-awesome-theme.zip theme.json theme.css
 ```
 
 Installing a zip with the same file name as an installed theme overwrites that theme's files.
+
+Argon refuses two kinds of zip:
+
+- a file name (without `.zip`) that is `.` or contains `/`, `\` or `..`, such as `..zip`. Nothing
+  is extracted; rename the file and try again.
+- a zip that contains a symlink anywhere in it. Argon deletes what it extracted. Theme files
+  must be real files.
 
 ## Sharing Themes
 

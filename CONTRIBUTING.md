@@ -62,10 +62,12 @@ Jest runs everything in `test/`:
 
 | File | Covers |
 |------|--------|
-| `test/main.test.js` | `main.js` with Electron mocked: IPC registration, input validation, tray, shortcuts, prefs, Dock icon. |
+| `test/main.test.js` | `main.js` with Electron mocked: IPC registration, input validation, tray, shortcut groups, prefs, Dock icon, the navigation guard, theme install checks. |
 | `test/preload.test.js` | `preload.js`: every `window.api` method calls the right channel. |
-| `test/renderer.test.js` | `index.html`, `app.js`, `theme-manager.js` and `base.css`, mostly by reading the source text. Also checks some README wording. |
-| `test/docs.test.js` | The IPC and prefs tables in `docs/architecture.md` match the code. |
+| `test/renderer.test.js` | `index.html`, `app.js`, `theme-manager.js` and `base.css`, mostly by reading the source text. Runs `favorite.js` and `playlist-layout.js` directly, and some of `app.js` through `test/helpers/appHarness.js`. Also checks some README wording. |
+| `test/theme-preview.test.js` | Theme hover preview in `theme-manager.js`, against small DOM mocks with fake timers. |
+| `test/visualizer.test.js` | The visualizer's playback states and idling, against small DOM mocks. |
+| `test/docs.test.js` | The IPC, prefs and shortcut groups tables in `docs/architecture.md` match the code. |
 
 The tests don't talk to Music, so they pass on any Mac and don't need the Automation
 permission.
@@ -108,8 +110,10 @@ channel is part of the security boundary.
    section (`music:`, `themes:`, `window:` and so on).
 2. **Validate every argument.** Check the type and the range, and return early if it's wrong.
    Look at `music:setVolume` and `themes:load` for the pattern. Never put a string from the
-   renderer into an AppleScript or a file path; convert to a number first, or check it against
-   a fixed list.
+   renderer into an AppleScript's source or a file path; convert to a number first, or check
+   it against a fixed list. If a script needs a string, check its format and pass it to
+   `runAppleScript(script, [value])`, which hands it to the script's `on run argv`, as
+   `music:toggleFavorite` does.
 3. **Expose it in `preload.js`.** Add one method that calls `ipcRenderer.invoke` with the
    channel. Don't expose `ipcRenderer` itself. For events from main, wrap the callback so the
    IPC event object doesn't reach the page, as `onToggleMiniMode` does.
@@ -123,8 +127,9 @@ channel is part of the security boundary.
 
 1. Add the key and its `typeof` type to `allowed` in the `prefs:save` handler in `main.js`.
    **If you skip this, `prefs:save` drops the key without an error.**
-2. Save it the way the other prefs do: `prefs.load()`, set the key, `prefs.save()` with the
-   whole object.
+2. Save it. `prefs:save` merges, so `prefs.save({ key: value })` is enough, as the visualizer
+   mode and the PL button do. Most older code sends the whole object from `prefs.load()`
+   instead; both work.
 3. Read it at startup where it's used, and handle it being missing (old prefs files won't
    have it).
 4. Add a row to the prefs table in [docs/architecture.md](docs/architecture.md#prefs).

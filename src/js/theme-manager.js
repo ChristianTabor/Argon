@@ -2,6 +2,9 @@
 // Theme Manager — Load, switch, and manage themes with category tabs
 // ═══════════════════════════════════════════════════════════════════════════
 
+// Color-only custom properties a hover preview may apply
+const PREVIEW_COLOR_VARS = /^--(?:bg-[\w-]+|text-[\w-]+|accent(?:-[\w-]+)?|border(?:-accent)?|viz-(?:bg|color-\d+)|titlebar-(?:bg|text)|panel-bg|logo-(?:accent-)?color|ctrl-(?:bg|hover|active)|bar-(?:bg|fill|handle)|glow|shadow|artwork-(?:border|shadow))$/;
+
 class ThemeManager {
   constructor() {
     this.currentTheme = null;
@@ -12,6 +15,21 @@ class ThemeManager {
     this.tabsEl = document.getElementById('theme-tabs');
     this.isOpen = false;
     this.activeCategory = 'All';
+
+    // Previews go in their own <style> right after the committed one, so cancelling
+    // is just emptying it. The committed CSS (and adaptive colors) are never touched.
+    this.previewEl = document.createElement('style');
+    this.previewEl.id = 'theme-preview-styles';
+    this.styleEl.after(this.previewEl);
+    this.previewTimer = null;
+    this.previewSeq = 0;
+    this.previewing = false;
+    this.themeCache = new Map(); // theme id -> { css, meta }, cleared each time the panel opens
+
+    window.addEventListener('blur', () => this.cancelPreview());
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && this.isOpen) this.cancelPreview();
+    });
   }
 
   async init() {
@@ -69,9 +87,91 @@ class ThemeManager {
     }
   }
 
+  // Theme CSS is read from disk once per panel open; hovering and clicking share the cache
+  async loadThemeData(themeId) {
+    if (!this.themeCache.has(themeId)) {
+      const data = await window.api.themes.load(themeId);
+      if (!data) return null;
+      this.themeCache.set(themeId, data);
+    }
+    return this.themeCache.get(themeId);
+  }
+
+  // Keep only the color custom properties from the :root blocks. Layout lives in variables
+  // too (--order-*, --show-*, sizes, fonts), so an allowlist keeps the player from jumping.
+  colorsOnly(css) {
+    const blocks = css.match(/:root\s*\{[^}]*\}/g) || [];
+    const decls = [];
+    for (const block of blocks) {
+      const body = block.slice(block.indexOf('{') + 1, -1);
+      for (const decl of body.split(';')) {
+        const colon = decl.indexOf(':');
+        if (colon < 0) continue;
+        const name = decl.slice(0, colon).trim();
+        if (PREVIEW_COLOR_VARS.test(name)) decls.push(`${name}: ${decl.slice(colon + 1).trim()};`);
+      }
+    }
+    return decls.length ? `:root {\n  ${decls.join('\n  ')}\n}` : '';
+  }
+
+  async previewTheme(themeId) {
+    const seq = this.previewSeq;
+    if (themeId === this.currentTheme) {
+      this.cancelPreview();
+      return;
+    }
+
+    if (themeId === '_adaptive') {
+      // app.js builds the adaptive colors from the current artwork and writes them to previewEl
+      this.previewEl.textContent = '';
+      window.dispatchEvent(new CustomEvent('themepreview', { detail: { themeId, adaptive: true } }));
+      return;
+    }
+
+    const data = await this.loadThemeData(themeId);
+    // A newer hover, a leave, a close or a click happened while the CSS was loading
+    if (!data || seq !== this.previewSeq) return;
+
+    this.previewEl.textContent = this.colorsOnly(data.css);
+    window.dispatchEvent(new CustomEvent('themepreview', { detail: { themeId, adaptive: false } }));
+  }
+
+  cancelPreview() {
+    clearTimeout(this.previewTimer);
+    this.previewTimer = null;
+    this.previewSeq++;
+    if (this.previewEl.textContent === '' && !this.previewing) return;
+    this.previewing = false;
+    this.previewEl.textContent = '';
+    window.dispatchEvent(new CustomEvent('themepreview', { detail: { themeId: null } }));
+  }
+
+  // Wait before previewing so a quick sweep across the cards doesn't flash every theme.
+  // The old preview stays up meanwhile, so going from card to card never flashes the committed theme.
+  schedulePreview(themeId) {
+    clearTimeout(this.previewTimer);
+    this.previewSeq++;
+    this.previewTimer = setTimeout(() => {
+      this.previewTimer = null;
+      this.previewing = true;
+      this.previewTheme(themeId);
+    }, 150);
+  }
+
+  scheduleCancel() {
+    clearTimeout(this.previewTimer);
+    this.previewSeq++;
+    this.previewTimer = setTimeout(() => this.cancelPreview(), 60);
+  }
+
+  // Previews don't resize the window, save prefs or fire themechange: this does
   async applyTheme(themeId) {
     // Special handling for adaptive theme
     if (themeId === '_adaptive') {
+      clearTimeout(this.previewTimer);
+      this.previewSeq++;
+      this.previewEl.textContent = '';
+      this.previewing = false;
       this.currentTheme = '_adaptive';
       this.listEl.querySelectorAll('.theme-card').forEach(card => {
         card.classList.toggle('active', card.dataset.id === '_adaptive');
@@ -83,24 +183,18 @@ class ThemeManager {
       return true;
     }
 
-    const data = await window.api.themes.load(themeId);
+    const data = await this.loadThemeData(themeId);
     if (!data) return false;
 
+    // Swap committed and preview in the same tick, so the player never flashes in between
+    clearTimeout(this.previewTimer);
+    this.previewSeq++;
+    this.previewEl.textContent = '';
+    this.previewing = false;
     this.styleEl.textContent = data.css;
     this.currentTheme = themeId;
 
-    // Parse window constraints directly from CSS text and resize immediately
-    const css = data.css;
-    const getProp = (name, def) => {
-      const m = css.match(new RegExp(name.replace('--', '--') + ':\\s*(\\d+)'));
-      return m ? parseInt(m[1]) : def;
-    };
-    const targetW  = getProp('--base-width',        300);
-    const minW     = getProp('--window-min-width',   275);
-    const minH     = getProp('--window-min-height',  440);
-    const maxW     = getProp('--window-max-width',   800);
-    const maxH     = getProp('--window-max-height', 1200);
-    window.api.window.applyConstraints(minW, minH, maxW, maxH, targetW, minH);
+    // The window is resized by the themechange handler in app.js, which also knows about the playlist
 
     // Update active state in list
     this.listEl.querySelectorAll('.theme-card').forEach(card => {
@@ -153,7 +247,7 @@ class ThemeManager {
         <div class="theme-card-author">Colors from album art</div>
         <div class="theme-card-badge">Dynamic</div>
       `;
-      adaptiveCard.addEventListener('click', () => this.applyTheme('_adaptive'));
+      this.wireCard(adaptiveCard, '_adaptive');
       this.listEl.appendChild(adaptiveCard);
     }
 
@@ -175,15 +269,29 @@ class ThemeManager {
         ${theme.builtin ? '<div class="theme-card-badge">Built-in</div>' : ''}
       `;
 
-      card.addEventListener('click', () => this.applyTheme(theme.id));
+      this.wireCard(card, theme.id);
       this.listEl.appendChild(card);
     }
+  }
+
+  wireCard(card, themeId) {
+    card.tabIndex = 0;
+    card.addEventListener('click', () => this.applyTheme(themeId));
+    card.addEventListener('mouseenter', () => this.schedulePreview(themeId));
+    card.addEventListener('mouseleave', () => this.scheduleCancel());
+    card.addEventListener('focus', () => this.schedulePreview(themeId));
+    card.addEventListener('blur', () => this.scheduleCancel());
+    card.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') this.applyTheme(themeId);
+    });
   }
 
   toggle() {
     this.isOpen = !this.isOpen;
     this.panelEl.classList.toggle('open', this.isOpen);
+    this.cancelPreview();
     if (this.isOpen) {
+      this.themeCache.clear();
       this.loadThemeList().then(() => {
         this.renderTabs();
         this.renderThemeList();
@@ -194,11 +302,13 @@ class ThemeManager {
   close() {
     this.isOpen = false;
     this.panelEl.classList.remove('open');
+    this.cancelPreview();
   }
 
   async installTheme() {
     const result = await window.api.themes.install();
     if (result && result.success) {
+      this.themeCache.clear();
       await this.loadThemeList();
       this.renderTabs();
       this.renderThemeList();

@@ -41,14 +41,17 @@ In scope:
   their CSS is injected into the page. Path traversal, files written outside that folder, or a
   theme escaping the Content Security Policy are in scope.
 - **The renderer.** Script injection through track, artist, album, playlist, lyrics or theme
-  metadata.
+  metadata, or a way to load another page in Argon's window (it refuses navigation, new
+  windows and drops).
+- **Theme import checks.** A zip name or a symlink that gets past the install checks (see
+  [docs/architecture.md](docs/architecture.md#theme-install-checks)).
 - **Updates.** Argon doesn't update itself yet. When it does
   ([#8](https://github.com/ChristianTabor/Argon/issues/8)), the update mechanism is in scope.
 
 Out of scope:
 
-- Builds aren't code-signed or notarized yet. That's known and tracked in
-  [#7](https://github.com/ChristianTabor/Argon/issues/7).
+- Builds are only ad-hoc signed, not signed with a Developer ID or notarized. That's known and
+  tracked in [#7](https://github.com/ChristianTabor/Argon/issues/7).
 - Problems that need an attacker who can already run code as you, or edit Argon's files or
   `prefs.json` directly.
 - Vulnerabilities in Electron, Chromium or macOS themselves. Report those upstream. An

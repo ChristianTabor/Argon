@@ -37,11 +37,17 @@ describe('Music API', () => {
     'getState', 'getArtwork', 'play', 'pause', 'playpause',
     'next', 'prev', 'setVolume', 'setPosition',
     'toggleShuffle', 'toggleRepeat', 'getPlaylist', 'playTrackIndex',
-    'getLyrics',
+    'getLyrics', 'toggleFavorite',
   ];
 
   test.each(musicMethods)('exposes music.%s', (method) => {
     expect(typeof exposedApis.api.music[method]).toBe('function');
+  });
+
+  test('toggleFavorite passes the persistent ID to its IPC channel', async () => {
+    const { ipcRenderer } = require('electron');
+    await exposedApis.api.music.toggleFavorite('E65C8AA0BE4E15B0');
+    expect(ipcRenderer.invoke).toHaveBeenCalledWith('music:toggleFavorite', 'E65C8AA0BE4E15B0');
   });
 
   test('getLyrics calls correct IPC channel', async () => {

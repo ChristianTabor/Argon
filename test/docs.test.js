@@ -1,5 +1,5 @@
 /**
- * Tests for docs/architecture.md — keeps the IPC and prefs tables in step with the code
+ * Tests for docs/architecture.md — keeps the IPC, prefs and shortcut tables in step with the code
  */
 
 const fs = require('fs');
@@ -85,5 +85,34 @@ describe('Prefs table in docs/architecture.md', () => {
   test('documents no pref that the whitelist lacks', () => {
     const extra = documented.filter(k => !(k in allowed));
     expect(extra).toEqual([]);
+  });
+});
+
+describe('Shortcut groups table in docs/architecture.md', () => {
+  const start = architecture.indexOf('\n### Shortcut groups\n');
+  const rows = architecture.slice(start).split('\n\n').find(block => block.startsWith('| Group'))
+    .split('\n').slice(2).map(line => line.split('|').map(cell => cell.trim()));
+  // Blank group cells continue the group above
+  let group = '';
+  const documented = rows.map(cells => {
+    if (cells[1]) group = cells[1].replace(/`/g, '');
+    return `${group} ${cells[4].replace(/`/g, '')}`;
+  });
+
+  const groupsBody = mainCode.match(/const SHORTCUT_GROUPS = \{([\s\S]*?)\n\};/)[1];
+  const registered = [];
+  for (const [, name, body] of groupsBody.matchAll(/^ {2}(\w+): \{([\s\S]*?)^ {2}\},/gm)) {
+    for (const [, accelerator] of body.matchAll(/^ {4}'?([\w+]+)'?:/gm)) {
+      registered.push(`${name} ${accelerator.replace('CommandOrControl', 'Cmd')}`);
+    }
+  }
+
+  test('finds the shortcut groups in the code and the docs', () => {
+    expect(start).toBeGreaterThan(-1);
+    expect(registered.length).toBeGreaterThan(0);
+  });
+
+  test('lists every shortcut in its group, and nothing else', () => {
+    expect([...documented].sort()).toEqual([...registered].sort());
   });
 });

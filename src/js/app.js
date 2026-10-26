@@ -8,10 +8,14 @@
   const player = $('#player');
   const marqueeText = $('#marquee-text');
   const albumDisplay = $('#album-display');
+  const timeDisplay = $('#time-display');
   const timeCurrent = $('#time-current');
   const timeTotal = $('#time-total');
   const seekTimeLeft = $('#seek-time-left');
   const seekTimeRight = $('#seek-time-right');
+  const kbpsDisplay = $('#display-kbps');
+  const khzDisplay = $('#display-khz');
+  const btnFavorite = $('#btn-favorite');
   const trackNameDisplay = $('#track-name-display');
   const trackArtistDisplay = $('#track-artist-display');
   const artworkImg = $('#artwork-img');
@@ -38,6 +42,7 @@
   const btnClose = $('#btn-close');
   const btnThemes = $('#btn-themes');
   const btnEq = $('#btn-eq');
+  const btnPlaylist = $('#btn-playlist');
   const btnCloseThemes = $('#btn-close-themes');
   const btnInstallTheme = $('#btn-install-theme');
   const btnOpenThemesFolder = $('#btn-open-themes-folder');
@@ -89,15 +94,20 @@
     prevVolume: 50,
     lastArtwork: null,
     lastTrack: '',
+    persistentId: '',
+    favorited: false,
     adaptiveTheme: false,
     playlistData: null,
     playlistLastTrack: '',
+    playlistVisible: undefined, // true | false = user override from the PL button, undefined = follow the theme
+    playlistRestoreHeight: null, // window height from before the PL button grew it
     notifiedTrack: '',
     lyricsOpen: false,
     lyricsTrack: '',
     eqOpen: false,
     eqBands: [0,0,0,0,0,0,0,0,0,0],
     miniMode: false,
+    timeMode: 'elapsed', // 'elapsed' | 'remaining' (click the time to toggle)
   };
 
   // Drag state (declared early — referenced by updateUI before seek/volume sections)
@@ -105,14 +115,30 @@
   let volumeDragging = false;
 
   // ─── Window Constraints ───────────────────────────────────────────────
-  function applyWindowConstraints() {
+  const { resolvePlaylistVisible, playlistWindowHeights } = window.PlaylistLayout;
+
+  function playlistThemeDefault() {
+    const v = getComputedStyle(document.documentElement).getPropertyValue('--show-playlist').trim();
+    return v !== '' && v !== 'none';
+  }
+
+  // keepSize: a toggle keeps the user's size. Otherwise the window starts from the theme's base size.
+  function applyWindowConstraints(keepSize) {
     const style = getComputedStyle(document.documentElement);
     const baseW = parseInt(style.getPropertyValue('--base-width').trim()) || 300;
     const minW  = parseInt(style.getPropertyValue('--window-min-width').trim()) || 275;
     const minH  = parseInt(style.getPropertyValue('--window-min-height').trim()) || 440;
     const maxW  = parseInt(style.getPropertyValue('--window-max-width').trim()) || 800;
     const maxH  = parseInt(style.getPropertyValue('--window-max-height').trim()) || 1200;
-    window.api.window.applyConstraints(minW, minH, maxW, maxH, baseW, minH);
+    const themeDefault = playlistThemeDefault();
+    const heights = playlistWindowHeights({
+      minH, maxH, curH: window.innerHeight, themeDefault,
+      visible: resolvePlaylistVisible(themeDefault, state.playlistVisible),
+      restoreH: state.playlistRestoreHeight, keepSize,
+    });
+    state.playlistRestoreHeight = heights.restoreH;
+    const w = keepSize ? Math.min(Math.max(window.innerWidth, minW), maxW) : baseW;
+    window.api.window.applyConstraints(minW, heights.minHeight, maxW, maxH, w, heights.targetHeight);
   }
 
   // ─── CSS Transition-Based Seek ────────────────────────────────────────
@@ -163,9 +189,7 @@
       seekHandle.style.left = `${pct}%`;
       stopTimeUpdater();
 
-      const timeStr = formatTime(posSec);
-      timeCurrent.textContent = timeStr;
-      seekTimeLeft.textContent = timeStr;
+      renderTime(posSec, durSec);
     }
   }
 
@@ -179,9 +203,7 @@
       }
       const elapsed = (performance.now() - seek.startedAt) / 1000;
       const displayPos = Math.min(seek.startPos + elapsed, seek.duration);
-      const timeStr = formatTime(displayPos);
-      timeCurrent.textContent = timeStr;
-      seekTimeLeft.textContent = timeStr;
+      renderTime(displayPos, seek.duration);
       if (state.miniMode && seek.duration > 0) {
         miniSeekFill.style.width = `${(displayPos / seek.duration) * 100}%`;
       }
@@ -199,10 +221,34 @@
 
   // ─── Visualizer ────────────────────────────────────────────────────────
   const viz = new Visualizer($('#visualizer'));
+  const VIZ_STATES = {
+    playing: 'playing',
+    paused: 'paused',
+    stopped: 'stopped',
+    'fast forwarding': 'seeking',
+    rewinding: 'seeking',
+  };
+
+  // Restore the saved visualizer mode, unless the user already picked one
+  let vizModeChosen = false;
+  (async () => {
+    const p = await window.api.prefs.load();
+    if (p.visualizer && !vizModeChosen) viz.setMode(p.visualizer);
+  })();
+
+  function cycleVizMode() {
+    vizModeChosen = true;
+    // prefs:save merges, so only the mode goes out
+    window.api.prefs.save({ visualizer: viz.nextMode() });
+  }
 
   // ─── Theme Manager ────────────────────────────────────────────────────
   const themeManager = new ThemeManager();
+  // Restore the playlist override before the theme loads, so the first resize already has it
+  const startupPrefs = await window.api.prefs.load();
+  if (typeof startupPrefs.playlistVisible === 'boolean') state.playlistVisible = startupPrefs.playlistVisible;
   await themeManager.init();
+  updatePlaylistUI();
 
   // Check if adaptive was the saved theme
   if (themeManager.currentTheme === '_adaptive') {
@@ -307,16 +353,31 @@
       }
     }
     // Update window constraints for new theme
+    updatePlaylistUI();
     requestAnimationFrame(() => {
       applyWindowConstraints();
     });
-    // Re-cache colors and re-apply transparency + text mode for the new theme
-    transparencyStyleEl.textContent = '';
-    requestAnimationFrame(() => {
-      cacheBgColors();
-      if (bgOpacity < 1) applyBgTransparency(bgOpacity);
-      if (darkTextMode) applyDarkTextMode(true);
-    });
+    reapplyOverrides();
+  });
+
+  // Re-cache colors and re-apply transparency + text mode for the theme now showing.
+  // All in one turn: the transparency CSS is cleared only to read the theme's own colors
+  // and rewritten before the next paint, so the window never flashes opaque.
+  function reapplyOverrides() {
+    cacheBgColors();
+    if (bgOpacity < 1) applyBgTransparency(bgOpacity);
+    if (darkTextMode) applyDarkTextMode(true);
+  }
+
+  // Theme hover preview: nothing is saved, and the window is not resized
+  window.addEventListener('themepreview', (e) => {
+    if (e.detail.adaptive && state.lastArtwork && artworkImg.complete && artworkImg.naturalWidth > 0) {
+      const colors = extractColors(artworkImg);
+      if (colors) {
+        document.getElementById('theme-preview-styles').textContent = applyAdaptiveColors(colors);
+      }
+    }
+    reapplyOverrides();
   });
 
   // ─── Dark / Light Text Mode ─────────────────────────────────────────
@@ -367,14 +428,86 @@
   // ─── Formatting ────────────────────────────────────────────────────────
   function formatTime(seconds) {
     if (!seconds || seconds < 0) return '0:00';
-    const m = Math.floor(seconds / 60);
+    const h = Math.floor(seconds / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
     const s = Math.floor(seconds % 60);
-    return `${m}:${s.toString().padStart(2, '0')}`;
+    const ss = s.toString().padStart(2, '0');
+    return h > 0 ? `${h}:${m.toString().padStart(2, '0')}:${ss}` : `${m}:${ss}`;
   }
+
+  // Elapsed ('1:23') or remaining ('-2:01', Winamp-style). Whole seconds, so elapsed + remaining
+  // always adds up to the total shown, and the end of a track reads '0:00', never '-0:00'.
+  // With no duration (stopped, end of playlist, live stream) remaining has no meaning, so it
+  // always shows elapsed.
+  function formatTimeReadout(posSec, durSec, mode) {
+    if (mode !== 'remaining' || !(durSec > 0)) return formatTime(posSec);
+    const left = Math.max(0, Math.floor(durSec || 0) - Math.floor(posSec || 0));
+    return left > 0 ? `-${formatTime(left)}` : '0:00';
+  }
+
+  // A poll that reports no duration (stopped, end of playlist, live stream): park the seek state
+  // so the ticker stops, and return the position to show. Stopped always reads 0:00.
+  function parkSeekWithoutDuration(seekState, polled) {
+    seekState.isPlaying = false;
+    seekState.duration = 0;
+    seekState.lastTrack = '';
+    seekState.position = polled.state === 'stopped' ? 0 : (polled.position || 0);
+    return seekState.position;
+  }
+
+  // The one place the position readouts are written (classic display and inline seek time)
+  let lastTime = { pos: 0, dur: 0 };
+  function renderTime(posSec, durSec) {
+    lastTime = { pos: posSec, dur: durSec };
+    const str = formatTimeReadout(posSec, durSec, state.timeMode);
+    timeCurrent.textContent = str;
+    seekTimeLeft.textContent = str;
+  }
+
+  function updateTimeModeTitles() {
+    const tip = state.timeMode === 'remaining' ? 'Click to show elapsed time' : 'Click to show remaining time';
+    timeDisplay.title = tip;
+    seekTimeLeft.title = tip;
+  }
+
+  function nextTimeMode(mode) {
+    return mode === 'remaining' ? 'elapsed' : 'remaining';
+  }
+
+  // A saved mode is only trusted if it is one of the two known values
+  function parseTimeMode(saved) {
+    return saved === 'elapsed' || saved === 'remaining' ? saved : null;
+  }
+
+  function toggleTimeMode() {
+    state.timeMode = nextTimeMode(state.timeMode);
+    updateTimeModeTitles();
+    renderTime(lastTime.pos, lastTime.dur);
+    (async () => {
+      const prefs = await window.api.prefs.load();
+      prefs.timeMode = state.timeMode;
+      await window.api.prefs.save(prefs);
+    })();
+  }
+
+  timeDisplay.addEventListener('click', toggleTimeMode);
+  seekTimeLeft.addEventListener('click', toggleTimeMode);
+  updateTimeModeTitles();
+
+  // Restore the saved mode (ignore anything but the two known values)
+  (async () => {
+    const p = await window.api.prefs.load();
+    const saved = parseTimeMode(p.timeMode);
+    if (saved) {
+      state.timeMode = saved;
+      updateTimeModeTitles();
+      renderTime(lastTime.pos, lastTime.dur);
+    }
+  })();
 
   function setMarquee(text) {
     marqueeText.textContent = text;
-    marqueeText.classList.remove('scrolling');
+    marqueeText.classList.remove('scrolling', 'paused', 'reversed');
 
     requestAnimationFrame(() => {
       const container = marqueeText.parentElement;
@@ -383,9 +516,60 @@
         const duration = Math.max(8, text.length * 0.35);
         marqueeText.style.setProperty('--marquee-duration', `${duration}s`);
         marqueeText.classList.add('scrolling');
+        // Reduced motion: start still. A click starts it.
+        if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+          marqueeText.classList.add('paused');
+        }
       }
     });
   }
+
+  // Bit rate in kbps, "--" when Music doesn't report one
+  function formatBitRate(kbps) {
+    return Number.isFinite(kbps) && kbps > 0 ? String(Math.min(9999, Math.round(kbps))) : '--';
+  }
+
+  // Sample rate in Hz shown as kHz without trailing zeros (44100 -> 44.1, 96000 -> 96)
+  function formatSampleRate(hz) {
+    return Number.isFinite(hz) && hz > 0 ? String(parseFloat((hz / 1000).toFixed(1))) : '--';
+  }
+
+  // ─── Favorite ──────────────────────────────────────────────────────────
+  const favorite = createFavoriteController({
+    toggle: (id) => window.api.music.toggleFavorite(id),
+    paint: (favorited) => {
+      state.favorited = favorited;
+      btnFavorite.classList.toggle('active', favorited);
+      btnFavorite.setAttribute('aria-pressed', String(favorited));
+    },
+  });
+
+  btnFavorite.addEventListener('click', () => favorite.click());
+
+  // Click the scrolling title to pause or resume it; Shift+click reverses it.
+  // A title that fits isn't scrolling, so clicks do nothing.
+  function toggleMarqueePause() {
+    if (!marqueeText.classList.contains('scrolling')) return;
+    marqueeText.classList.toggle('paused');
+  }
+
+  function reverseMarquee() {
+    if (!marqueeText.classList.contains('scrolling')) return;
+    const anim = marqueeText.getAnimations()[0];
+    // Where the text is now (0..1), so the flip doesn't make it jump
+    const timing = anim && anim.effect.getComputedTiming();
+    const reversed = marqueeText.classList.toggle('reversed');
+    // The class change can replace the animation, so move the clock on the new one
+    const current = marqueeText.getAnimations()[0];
+    if (current && timing && typeof timing.progress === 'number') {
+      current.currentTime = (reversed ? 1 - timing.progress : timing.progress) * timing.duration;
+    }
+  }
+
+  marqueeText.parentElement.addEventListener('click', (e) => {
+    if (e.shiftKey) reverseMarquee();
+    else toggleMarqueePause();
+  });
 
   // ─── Update UI from State ──────────────────────────────────────────────
   function updateUI(newState) {
@@ -398,7 +582,7 @@
     btnPlayPause.classList.toggle('active', isPlaying);
 
     player.classList.toggle('playing', isPlaying);
-    viz.setPlaying(isPlaying);
+    viz.setState(VIZ_STATES[newState.state] || 'stopped');
 
     if (artworkPlaceholder) {
       artworkPlaceholder.classList.toggle('stopped', !isPlaying);
@@ -409,6 +593,7 @@
       const displayText = `${newState.track}  \u2014  ${newState.artist}`;
       setMarquee(displayText);
       state.lastTrack = newState.track;
+      viz.trackChanged();
 
       // Update separate track info display
       trackNameDisplay.textContent = newState.track;
@@ -419,6 +604,16 @@
       trackNameDisplay.textContent = '';
       trackArtistDisplay.textContent = '';
     }
+
+    // Bit rate and sample rate come with the state, so there's no extra osascript call
+    if (kbpsDisplay) kbpsDisplay.textContent = formatBitRate(newState.bitRate);
+    if (khzDisplay) khzDisplay.textContent = formatSampleRate(newState.sampleRate);
+
+    // Favorite heart: hidden while stopped or when Music gives no track ID.
+    // It follows the polled value, except while a toggle is in flight.
+    state.persistentId = isStopped ? '' : (newState.persistentId || '');
+    btnFavorite.hidden = !state.persistentId;
+    favorite.update(state.persistentId, newState.favorited);
 
     // Album name
     if (newState.album) {
@@ -455,6 +650,9 @@
       seekHandle.style.transition = 'none';
       seekFill.style.width = '0%';
       seekHandle.style.left = '0%';
+      const pos = parkSeekWithoutDuration(seek, newState);
+      stopTimeUpdater();
+      renderTime(pos, 0);
     }
 
     // Time total (only changes on track change)
@@ -735,9 +933,7 @@
       el.className = 'playlist-track' + (track.index === data.currentIndex ? ' active' : '');
       el.dataset.index = track.index;
 
-      const durMin = Math.floor(track.duration / 60);
-      const durSec = Math.floor(track.duration % 60);
-      const durStr = `${durMin}:${durSec.toString().padStart(2, '0')}`;
+      const durStr = formatTime(track.duration);
 
       const numDisplay = track.index === data.currentIndex
         ? '<svg width="12" height="12" viewBox="0 0 16 16" style="vertical-align:middle"><path d="M2 6h2.5L8 3v10L4.5 10H2V6Z" fill="currentColor"/><path d="M10.5 5.5c1 1 1 3.5 0 5" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round"/></svg>'
@@ -819,9 +1015,7 @@
     seekFill.style.width = `${pct * 100}%`;
     seekHandle.style.left = `${pct * 100}%`;
     const pos = pct * seek.duration;
-    const timeStr = formatTime(pos);
-    timeCurrent.textContent = timeStr;
-    seekTimeLeft.textContent = timeStr;
+    renderTime(pos, seek.duration);
     return pct;
   }
 
@@ -977,7 +1171,7 @@
   btnOpenThemesFolder.addEventListener('click', () => window.api.themes.openFolder());
 
   // ─── Visualizer Mode Toggle ───────────────────────────────────────────
-  vizModeToggle.addEventListener('click', () => viz.nextMode());
+  vizModeToggle.addEventListener('click', cycleVizMode);
 
   // ─── Lyrics Panel ────────────────────────────────────────────────────
   async function fetchLyrics() {
@@ -1127,6 +1321,32 @@
     if (p.eqPreset) eqPresetSelect.value = p.eqPreset;
   })();
 
+  // ─── Playlist Toggle (PL button) ─────────────────────────────────────
+  function isPlaylistVisible() {
+    return resolvePlaylistVisible(playlistThemeDefault(), state.playlistVisible);
+  }
+
+  function updatePlaylistUI() {
+    // The classes mark only a real difference from the theme, so a matching override leaves the theme's own layout alone
+    const themeDefault = playlistThemeDefault();
+    player.classList.toggle('playlist-forced-on', state.playlistVisible === true && !themeDefault);
+    player.classList.toggle('playlist-forced-off', state.playlistVisible === false && themeDefault);
+    btnPlaylist.classList.toggle('active', isPlaylistVisible());
+  }
+
+  function togglePlaylist() {
+    if (state.miniMode) return;
+    state.playlistVisible = !isPlaylistVisible();
+    updatePlaylistUI();
+    if (state.playlistVisible && !state.playlistData) fetchPlaylist();
+    applyWindowConstraints(true);
+    // Save only this key (prefs:save merges), from the in-memory flag
+    window.api.prefs.save({ playlistVisible: state.playlistVisible });
+  }
+
+  btnPlaylist.addEventListener('click', togglePlaylist);
+  updatePlaylistUI();
+
   // ─── Mini Mode ───────────────────────────────────────────────────────
   function updateMiniPlayerUI() {
     if (!state.miniMode) return;
@@ -1174,6 +1394,9 @@
   }
 
   btnMini.addEventListener('click', toggleMiniMode);
+  // Double-click the titlebar label to enter windowshade, the windowshade label to exit
+  $('#titlebar-text').addEventListener('dblclick', () => { if (!state.miniMode) toggleMiniMode(); });
+  $('#mini-title').addEventListener('dblclick', () => { if (state.miniMode) toggleMiniMode(); });
   miniExpand.addEventListener('click', () => { if (state.miniMode) toggleMiniMode(); });
   miniPrev.addEventListener('click', () => window.api.music.prev());
   miniNext.addEventListener('click', () => window.api.music.next());
@@ -1207,6 +1430,14 @@
       requestAnimationFrame(() => enterMiniMode());
     }
   })();
+
+  // ─── Drops ────────────────────────────────────────────────────────────
+  // Dropping a link or file would navigate the window away from Argon
+  document.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'none';
+  });
+  document.addEventListener('drop', (e) => e.preventDefault());
 
   // ─── Keyboard Shortcuts ───────────────────────────────────────────────
   document.addEventListener('keydown', (e) => {
@@ -1244,12 +1475,20 @@
         themeManager.toggle();
         btnThemes.classList.toggle('active', themeManager.isOpen);
         break;
-      case 'KeyV': viz.nextMode(); break;
+      case 'KeyV':
+        if (!e.repeat) cycleVizMode();
+        break;
       case 'KeyD':
         if (btnTextMode) btnTextMode.click();
         break;
       case 'KeyL': toggleLyrics(); break;
       case 'KeyE': toggleEq(); break;
+      case 'KeyF':
+        if (isFavoriteKey(e)) favorite.click();
+        break;
+      case 'KeyP':
+        if (!e.repeat) togglePlaylist(); // holding P must not flip it back and forth
+        break;
     }
   });
 })();
