@@ -344,6 +344,16 @@ describe('Global Shortcuts', () => {
       expect(item('Media Keys Need Accessibility Permission…')).toBeUndefined();
     });
 
+    test('media keys refused for missing Accessibility permission are not reported as in use', () => {
+      const { systemPreferences } = require('electron');
+      systemPreferences.isTrustedAccessibilityClient.mockReturnValue(false);
+      // Electron's register() returns false for media keys when the app isn't trusted
+      ['MediaPlayPause', 'MediaNextTrack', 'MediaPreviousTrack'].forEach((key) => mockBusyShortcuts.add(key));
+      ipcHandlers['prefs:save']({}, { mediaKeys: true });
+      expect(item('Media Keys Need Accessibility Permission…')).toBeDefined();
+      expect(lastTrayMenu().some((i) => String(i.label).startsWith('In use by another app'))).toBe(false);
+    });
+
     test('shows no Accessibility warning while media keys are off', () => {
       const { systemPreferences } = require('electron');
       systemPreferences.isTrustedAccessibilityClient.mockReturnValue(false);

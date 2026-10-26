@@ -748,17 +748,18 @@ function setShortcutGroup(group, enabled, prompt = false) {
   if (group === 'media') mediaKeysEnabled = enabled;
   else globalShortcutsEnabled = enabled;
 
+  // Media keys only register once Argon is a trusted accessibility client. Electron refuses them
+  // otherwise, and that refusal isn't another app holding the key, so don't report it as one.
+  const untrusted = group === 'media' && enabled && !systemPreferences.isTrustedAccessibilityClient(prompt);
+  if (group === 'media') shortcutProblems.untrusted = untrusted;
+
   const accelerators = SHORTCUT_GROUPS[group];
   for (const accelerator of Object.keys(accelerators)) {
     globalShortcut.unregister(accelerator);
     delete shortcutProblems.failed[accelerator];
-    if (enabled && !globalShortcut.register(accelerator, accelerators[accelerator])) {
+    if (enabled && !globalShortcut.register(accelerator, accelerators[accelerator]) && !untrusted) {
       shortcutProblems.failed[accelerator] = true;
     }
-  }
-  if (group === 'media') {
-    // Media keys only register once Argon is a trusted accessibility client
-    shortcutProblems.untrusted = enabled && !systemPreferences.isTrustedAccessibilityClient(prompt);
   }
   updateTrayMenu(trayTrack, trayArtist);
 }
