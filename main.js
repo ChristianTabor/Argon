@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog, shell, screen, globalShortcut, Tray, Menu, nativeImage, Notification } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell, screen, globalShortcut, systemPreferences, Tray, Menu, nativeImage, Notification } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { execFile } = require('child_process');
@@ -16,6 +16,9 @@ let prevAlwaysOnTop = false;
 let isSnapped = false;
 let lastProgrammaticMove = 0;
 let dockIconHidden = false;
+let mediaKeysEnabled = false;
+let globalShortcutsEnabled = true;
+let shortcutProblems = { untrusted: false, failed: {} };
 let trayTrack = '';
 let trayArtist = '';
 
@@ -87,10 +90,18 @@ function ensureUserThemesDir() {
 function loadPrefs() {
   try {
     if (fs.existsSync(PREFS_PATH)) {
-      return JSON.parse(fs.readFileSync(PREFS_PATH, 'utf-8'));
+      const saved = JSON.parse(fs.readFileSync(PREFS_PATH, 'utf-8'));
+      // Existing installs captured the media keys before this was a choice, so keep it on for them
+      if (saved && typeof saved === 'object' && !Array.isArray(saved) && typeof saved.mediaKeys !== 'boolean') {
+        saved.mediaKeys = true;
+      }
+      return saved;
     }
   } catch (e) { /* ignore */ }
-  return { theme: 'classic-winamp', visualizer: 'bars', alwaysOnTop: false, hideDockIcon: false };
+  return {
+    theme: 'classic-winamp', visualizer: 'bars', alwaysOnTop: false, hideDockIcon: false,
+    mediaKeys: false, globalShortcuts: true,
+  };
 }
 
 // Save preferences
@@ -544,6 +555,7 @@ ipcMain.handle('prefs:save', (_, prefs) => {
     theme: 'string', visualizer: 'string', alwaysOnTop: 'boolean',
     transparency: 'number', darkText: 'boolean', eqBands: 'object',
     eqPreset: 'string', miniMode: 'boolean', hideDockIcon: 'boolean',
+    mediaKeys: 'boolean', globalShortcuts: 'boolean',
   };
   const sanitized = {};
   for (const [key, type] of Object.entries(allowed)) {
@@ -553,6 +565,9 @@ ipcMain.handle('prefs:save', (_, prefs) => {
   }
   // Merge, so keys the renderer doesn't send (hideDockIcon, owned by the tray menu) survive
   updatePrefs(sanitized);
+  // Shortcut changes apply right away
+  if ('mediaKeys' in sanitized) setShortcutGroup('media', sanitized.mediaKeys);
+  if ('globalShortcuts' in sanitized) setShortcutGroup('global', sanitized.globalShortcuts);
 });
 
 // ─── Tray ───────────────────────────────────────────────────────────────────
@@ -680,6 +695,25 @@ function updateTrayMenu(track, artist, windowInFront = mainWindowInFront()) {
         updateTrayMenu(trayTrack, trayArtist);
       },
     }] : []),
+    {
+      label: 'Capture Media Keys',
+      type: 'checkbox',
+      checked: mediaKeysEnabled,
+      click: () => {
+        setShortcutGroup('media', !mediaKeysEnabled, true);
+        updatePrefs({ mediaKeys: mediaKeysEnabled });
+      },
+    },
+    {
+      label: 'Global Shortcuts (Cmd+Shift)',
+      type: 'checkbox',
+      checked: globalShortcutsEnabled,
+      click: () => {
+        setShortcutGroup('global', !globalShortcutsEnabled);
+        updatePrefs({ globalShortcuts: globalShortcutsEnabled });
+      },
+    },
+    ...shortcutProblemItems(),
     { type: 'separator' },
     { label: 'Quit Argon', click: () => { tray = null; app.quit(); } },
   ]);
@@ -687,27 +721,64 @@ function updateTrayMenu(track, artist, windowInFront = mainWindowInFront()) {
 
 // ─── Global Shortcuts ───────────────────────────────────────────────────────
 
-function registerGlobalShortcuts() {
-  globalShortcut.register('MediaPlayPause', () => {
-    runAppleScript('tell application "Music" to playpause');
-  });
-  globalShortcut.register('MediaNextTrack', () => {
-    runAppleScript('tell application "Music" to next track');
-  });
-  globalShortcut.register('MediaPreviousTrack', () => {
-    runAppleScript('tell application "Music" to previous track');
-  });
-  globalShortcut.register('CommandOrControl+Shift+Up', () => {
-    runAppleScript('tell application "Music" to set sound volume to (sound volume + 5)');
-  });
-  globalShortcut.register('CommandOrControl+Shift+Down', () => {
-    runAppleScript('tell application "Music" to set sound volume to (sound volume - 5)');
-  });
-  globalShortcut.register('CommandOrControl+Shift+M', () => {
-    // Closing the window destroys it, so bring it back instead of throwing
-    if (!mainWindow || mainWindow.isDestroyed()) createWindow();
-    else mainWindow.webContents.send('toggle-mini-mode');
-  });
+const runMusic = (script) => () => runAppleScript(`tell application "Music" to ${script}`);
+
+const SHORTCUT_GROUPS = {
+  media: {
+    MediaPlayPause: runMusic('playpause'),
+    MediaNextTrack: runMusic('next track'),
+    MediaPreviousTrack: runMusic('previous track'),
+  },
+  global: {
+    'CommandOrControl+Shift+Up': runMusic('set sound volume to (sound volume + 5)'),
+    'CommandOrControl+Shift+Down': runMusic('set sound volume to (sound volume - 5)'),
+    'CommandOrControl+Shift+M': () => {
+      // Closing the window destroys it, so bring it back instead of throwing
+      if (!mainWindow || mainWindow.isDestroyed()) createWindow();
+      else mainWindow.webContents.send('toggle-mini-mode');
+    },
+  },
+};
+
+const ACCESSIBILITY_SETTINGS_URL = 'x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility';
+
+// Turn one group of shortcuts on or off: unregister its accelerators, then register them if enabled.
+// `prompt` lets macOS ask for Accessibility access, so it's only set when the user just turned the keys on.
+function setShortcutGroup(group, enabled, prompt = false) {
+  if (group === 'media') mediaKeysEnabled = enabled;
+  else globalShortcutsEnabled = enabled;
+
+  // Media keys only register once Argon is a trusted accessibility client. Electron refuses them
+  // otherwise, and that refusal isn't another app holding the key, so don't report it as one.
+  const untrusted = group === 'media' && enabled && !systemPreferences.isTrustedAccessibilityClient(prompt);
+  if (group === 'media') shortcutProblems.untrusted = untrusted;
+
+  const accelerators = SHORTCUT_GROUPS[group];
+  for (const accelerator of Object.keys(accelerators)) {
+    globalShortcut.unregister(accelerator);
+    delete shortcutProblems.failed[accelerator];
+    if (enabled && !globalShortcut.register(accelerator, accelerators[accelerator]) && !untrusted) {
+      shortcutProblems.failed[accelerator] = true;
+    }
+  }
+  updateTrayMenu(trayTrack, trayArtist);
+}
+
+// Tray menu lines for shortcuts that are on but not working
+function shortcutProblemItems() {
+  const items = [];
+  if (shortcutProblems.untrusted) {
+    items.push({
+      label: 'Media Keys Need Accessibility Permission…',
+      click: () => shell.openExternal(ACCESSIBILITY_SETTINGS_URL),
+    });
+  }
+  const inUse = Object.keys(shortcutProblems.failed)
+    .map((accelerator) => accelerator.replace('CommandOrControl', 'Cmd'));
+  if (inUse.length) {
+    items.push({ label: `In use by another app: ${inUse.join(', ')}`, enabled: false });
+  }
+  return items;
 }
 
 // ─── App Lifecycle ──────────────────────────────────────────────────────────
@@ -717,7 +788,9 @@ app.whenReady().then(() => {
   if (loadPrefs().hideDockIcon === true) setDockIconHidden(true);
   createWindow();
   createTray();
-  registerGlobalShortcuts();
+  const prefs = loadPrefs();
+  setShortcutGroup('media', prefs.mediaKeys === true);
+  setShortcutGroup('global', prefs.globalShortcuts !== false);
 });
 
 app.on('will-quit', () => {

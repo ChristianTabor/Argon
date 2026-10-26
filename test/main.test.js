@@ -46,6 +46,7 @@ const mockNotification = jest.fn().mockImplementation(() => ({
 mockNotification.isSupported = jest.fn(() => true);
 
 const registeredShortcuts = {};
+const mockBusyShortcuts = new Set(); // accelerators another app holds, so register() fails
 
 jest.mock('electron', () => ({
   app: {
@@ -66,14 +67,20 @@ jest.mock('electron', () => ({
     }),
   },
   dialog: { showOpenDialog: jest.fn() },
-  shell: { openPath: jest.fn() },
+  shell: { openPath: jest.fn(), openExternal: jest.fn() },
+  systemPreferences: { isTrustedAccessibilityClient: jest.fn(() => true) },
   screen: {
     getDisplayMatching: jest.fn(() => ({
       workArea: { width: 1920, height: 1080, x: 0, y: 0 },
     })),
   },
   globalShortcut: {
-    register: jest.fn((key, cb) => { registeredShortcuts[key] = cb; }),
+    register: jest.fn((key, cb) => {
+      if (mockBusyShortcuts.has(key)) return false;
+      registeredShortcuts[key] = cb;
+      return true;
+    }),
+    unregister: jest.fn((key) => { delete registeredShortcuts[key]; }),
     unregisterAll: jest.fn(),
   },
   Tray: jest.fn().mockImplementation(() => mockTray),
@@ -202,27 +209,167 @@ describe('Notifications IPC', () => {
 });
 
 describe('Global Shortcuts', () => {
-  test('registers media key shortcuts', () => {
-    const { globalShortcut } = require('electron');
-    expect(globalShortcut.register).toHaveBeenCalledWith('MediaPlayPause', expect.any(Function));
-    expect(globalShortcut.register).toHaveBeenCalledWith('MediaNextTrack', expect.any(Function));
-    expect(globalShortcut.register).toHaveBeenCalledWith('MediaPreviousTrack', expect.any(Function));
+  const MEDIA = ['MediaPlayPause', 'MediaNextTrack', 'MediaPreviousTrack'];
+  const GLOBAL = ['CommandOrControl+Shift+Up', 'CommandOrControl+Shift+Down', 'CommandOrControl+Shift+M'];
+
+  // Put both toggles back to a fresh install's state: media keys off, Cmd+Shift shortcuts on
+  afterEach(() => {
+    const { systemPreferences } = require('electron');
+    mockBusyShortcuts.clear();
+    systemPreferences.isTrustedAccessibilityClient.mockReturnValue(true);
+    ipcHandlers['prefs:save']({}, { mediaKeys: false, globalShortcuts: true });
   });
 
-  test('registers volume shortcuts', () => {
-    const { globalShortcut } = require('electron');
-    expect(globalShortcut.register).toHaveBeenCalledWith('CommandOrControl+Shift+Up', expect.any(Function));
-    expect(globalShortcut.register).toHaveBeenCalledWith('CommandOrControl+Shift+Down', expect.any(Function));
+  test('a fresh install registers the Cmd+Shift shortcuts and leaves the media keys alone', () => {
+    // Startup ran against no prefs.json
+    expect(Object.keys(registeredShortcuts).sort()).toEqual([...GLOBAL].sort());
+    expect(ipcHandlers['prefs:load']()).toEqual(expect.objectContaining({ mediaKeys: false, globalShortcuts: true }));
   });
 
-  test('registers mini mode shortcut', () => {
+  test('turning media keys on registers them without touching the other shortcuts', () => {
     const { globalShortcut } = require('electron');
-    expect(globalShortcut.register).toHaveBeenCalledWith('CommandOrControl+Shift+M', expect.any(Function));
+    globalShortcut.unregister.mockClear();
+    ipcHandlers['prefs:save']({}, { mediaKeys: true });
+    for (const key of MEDIA) expect(registeredShortcuts[key]).toEqual(expect.any(Function));
+    for (const key of GLOBAL) expect(registeredShortcuts[key]).toEqual(expect.any(Function));
+    expect(globalShortcut.unregister.mock.calls.map((c) => c[0]).sort()).toEqual([...MEDIA].sort());
+  });
+
+  test('turning media keys off unregisters them', () => {
+    ipcHandlers['prefs:save']({}, { mediaKeys: true });
+    ipcHandlers['prefs:save']({}, { mediaKeys: false });
+    for (const key of MEDIA) expect(registeredShortcuts[key]).toBeUndefined();
+    for (const key of GLOBAL) expect(registeredShortcuts[key]).toEqual(expect.any(Function));
+  });
+
+  test('turning global shortcuts off unregisters the Cmd+Shift accelerators only', () => {
+    ipcHandlers['prefs:save']({}, { mediaKeys: true });
+    ipcHandlers['prefs:save']({}, { globalShortcuts: false });
+    for (const key of GLOBAL) expect(registeredShortcuts[key]).toBeUndefined();
+    for (const key of MEDIA) expect(registeredShortcuts[key]).toEqual(expect.any(Function));
+  });
+
+  test('re-applying a setting unregisters before it registers again', () => {
+    const { globalShortcut } = require('electron');
+    ipcHandlers['prefs:save']({}, { globalShortcuts: true });
+    const key = 'CommandOrControl+Shift+M';
+    const unregistered = globalShortcut.unregister.mock.invocationCallOrder[
+      globalShortcut.unregister.mock.calls.map((c) => c[0]).lastIndexOf(key)];
+    const registered = globalShortcut.register.mock.invocationCallOrder[
+      globalShortcut.register.mock.calls.map((c) => c[0]).lastIndexOf(key)];
+    expect(unregistered).toBeLessThan(registered);
+  });
+
+  test('the media keys run the Music commands', () => {
+    const { execFile } = require('child_process');
+    ipcHandlers['prefs:save']({}, { mediaKeys: true });
+    execFile.mockClear();
+    registeredShortcuts.MediaNextTrack();
+    expect(execFile.mock.calls[0][1][1]).toContain('next track');
   });
 
   test('mini mode shortcut sends IPC to renderer', () => {
     registeredShortcuts['CommandOrControl+Shift+M']();
     expect(mockWindow.webContents.send).toHaveBeenCalledWith('toggle-mini-mode');
+  });
+
+  test('prefs:save only takes booleans for the shortcut prefs', () => {
+    const fs = require('fs');
+    fs.writeFileSync.mockClear();
+    ipcHandlers['prefs:save']({}, { mediaKeys: 'yes', globalShortcuts: 0 });
+    expect(JSON.parse(fs.writeFileSync.mock.calls[0][1])).toEqual(
+      expect.objectContaining({ mediaKeys: false, globalShortcuts: true }));
+    expect(registeredShortcuts.MediaPlayPause).toBeUndefined();
+  });
+
+  test('the shortcut prefs are saved', () => {
+    const fs = require('fs');
+    fs.writeFileSync.mockClear();
+    ipcHandlers['prefs:save']({}, { mediaKeys: true, globalShortcuts: false });
+    expect(JSON.parse(fs.writeFileSync.mock.calls[0][1])).toEqual(
+      expect.objectContaining({ mediaKeys: true, globalShortcuts: false }));
+  });
+
+  describe('tray menu', () => {
+    const item = (label) => lastTrayMenu().find((i) => i.label === label);
+
+    test('has a checkbox for each group that follows the prefs', () => {
+      expect(item('Capture Media Keys')).toEqual(expect.objectContaining({ type: 'checkbox', checked: false }));
+      expect(item('Global Shortcuts (Cmd+Shift)')).toEqual(expect.objectContaining({ type: 'checkbox', checked: true }));
+    });
+
+    test('Capture Media Keys registers the keys, saves the pref and updates the checkbox', () => {
+      const fs = require('fs');
+      fs.writeFileSync.mockClear();
+      item('Capture Media Keys').click();
+      expect(registeredShortcuts.MediaPlayPause).toEqual(expect.any(Function));
+      expect(JSON.parse(fs.writeFileSync.mock.calls[0][1]).mediaKeys).toBe(true);
+      expect(item('Capture Media Keys').checked).toBe(true);
+
+      item('Capture Media Keys').click();
+      expect(registeredShortcuts.MediaPlayPause).toBeUndefined();
+      expect(JSON.parse(fs.writeFileSync.mock.calls[1][1]).mediaKeys).toBe(false);
+      expect(item('Capture Media Keys').checked).toBe(false);
+    });
+
+    test('Global Shortcuts unregisters the Cmd+Shift accelerators and saves the pref', () => {
+      const fs = require('fs');
+      fs.writeFileSync.mockClear();
+      item('Global Shortcuts (Cmd+Shift)').click();
+      expect(registeredShortcuts['CommandOrControl+Shift+M']).toBeUndefined();
+      expect(JSON.parse(fs.writeFileSync.mock.calls[0][1]).globalShortcuts).toBe(false);
+      expect(item('Global Shortcuts (Cmd+Shift)').checked).toBe(false);
+    });
+
+    test('turning media keys on asks macOS for Accessibility access; the pref route does not', () => {
+      const { systemPreferences } = require('electron');
+      systemPreferences.isTrustedAccessibilityClient.mockClear();
+      ipcHandlers['prefs:save']({}, { mediaKeys: true });
+      expect(systemPreferences.isTrustedAccessibilityClient).toHaveBeenLastCalledWith(false);
+      item('Capture Media Keys').click(); // off
+      item('Capture Media Keys').click(); // on
+      expect(systemPreferences.isTrustedAccessibilityClient).toHaveBeenLastCalledWith(true);
+    });
+
+    test('shows a link to Accessibility settings when media keys are on but not trusted', () => {
+      const { systemPreferences, shell } = require('electron');
+      systemPreferences.isTrustedAccessibilityClient.mockReturnValue(false);
+      ipcHandlers['prefs:save']({}, { mediaKeys: true });
+      const warning = item('Media Keys Need Accessibility Permission…');
+      expect(warning).toBeDefined();
+      warning.click();
+      expect(shell.openExternal).toHaveBeenCalledWith(expect.stringContaining('Privacy_Accessibility'));
+
+      ipcHandlers['prefs:save']({}, { mediaKeys: false });
+      expect(item('Media Keys Need Accessibility Permission…')).toBeUndefined();
+    });
+
+    test('media keys refused for missing Accessibility permission are not reported as in use', () => {
+      const { systemPreferences } = require('electron');
+      systemPreferences.isTrustedAccessibilityClient.mockReturnValue(false);
+      // Electron's register() returns false for media keys when the app isn't trusted
+      ['MediaPlayPause', 'MediaNextTrack', 'MediaPreviousTrack'].forEach((key) => mockBusyShortcuts.add(key));
+      ipcHandlers['prefs:save']({}, { mediaKeys: true });
+      expect(item('Media Keys Need Accessibility Permission…')).toBeDefined();
+      expect(lastTrayMenu().some((i) => String(i.label).startsWith('In use by another app'))).toBe(false);
+    });
+
+    test('shows no Accessibility warning while media keys are off', () => {
+      const { systemPreferences } = require('electron');
+      systemPreferences.isTrustedAccessibilityClient.mockReturnValue(false);
+      ipcHandlers['prefs:save']({}, { globalShortcuts: true });
+      expect(item('Media Keys Need Accessibility Permission…')).toBeUndefined();
+    });
+
+    test('lists shortcuts another app already holds, and clears them when they are turned off', () => {
+      mockBusyShortcuts.add('CommandOrControl+Shift+M');
+      ipcHandlers['prefs:save']({}, { globalShortcuts: true });
+      expect(registeredShortcuts['CommandOrControl+Shift+M']).toBeUndefined();
+      expect(item('In use by another app: Cmd+Shift+M')).toEqual(expect.objectContaining({ enabled: false }));
+
+      ipcHandlers['prefs:save']({}, { globalShortcuts: false });
+      expect(lastTrayMenu().some((i) => String(i.label).startsWith('In use by another app'))).toBe(false);
+    });
   });
 });
 
@@ -394,7 +541,7 @@ describe('Prefs', () => {
       // The renderer only sends the keys it knows about
       ipcHandlers['prefs:save']({}, { theme: 'classic-winamp', miniMode: true, unknownKey: 'dropped' });
       const saved = JSON.parse(fs.writeFileSync.mock.calls[0][1]);
-      expect(saved).toEqual({ theme: 'classic-winamp', miniMode: true, hideDockIcon: true });
+      expect(saved).toEqual({ theme: 'classic-winamp', miniMode: true, hideDockIcon: true, mediaKeys: true });
     } finally {
       fs.existsSync.mockImplementation(() => false);
       fs.readFileSync.mockImplementation(() => '{}');
@@ -650,5 +797,59 @@ describe('Dock Icon — pref on at startup', () => {
       Object.assign(ipcHandlers, savedHandlers);
       Object.assign(registeredShortcuts, savedShortcuts);
     }
+  });
+});
+
+describe('Shortcut prefs at startup', () => {
+  // Loads a second copy of main.js against a saved prefs.json. The electron/fs mocks are shared
+  // with the first copy, so restore its handlers, shortcuts and fs mocks afterwards.
+  const startWith = async (saved) => {
+    const fs = require('fs');
+    fs.existsSync.mockImplementation((p) => String(p).endsWith('prefs.json'));
+    fs.readFileSync.mockImplementation(() => JSON.stringify(saved));
+    for (const key of Object.keys(registeredShortcuts)) delete registeredShortcuts[key];
+    jest.isolateModules(() => require('../main.js'));
+    await new Promise(setImmediate); // let app.whenReady().then(...) run
+    return Object.keys(registeredShortcuts).sort();
+  };
+
+  const run = async (saved, check) => {
+    const fs = require('fs');
+    const savedHandlers = { ...ipcHandlers };
+    const savedShortcuts = { ...registeredShortcuts };
+    try {
+      check(await startWith(saved));
+    } finally {
+      fs.existsSync.mockImplementation(() => false);
+      fs.readFileSync.mockImplementation(() => '{}');
+      for (const key of Object.keys(registeredShortcuts)) delete registeredShortcuts[key];
+      Object.assign(ipcHandlers, savedHandlers);
+      Object.assign(registeredShortcuts, savedShortcuts);
+    }
+  };
+
+  const MEDIA = ['MediaNextTrack', 'MediaPlayPause', 'MediaPreviousTrack'];
+  const GLOBAL = ['CommandOrControl+Shift+Down', 'CommandOrControl+Shift+M', 'CommandOrControl+Shift+Up'];
+
+  test('an existing prefs.json without mediaKeys keeps the media keys on', async () => {
+    await run({ theme: 'sakura' }, (keys) => expect(keys).toEqual([...MEDIA, ...GLOBAL].sort()));
+  });
+
+  test('saved mediaKeys: false leaves the media keys alone', async () => {
+    await run({ mediaKeys: false }, (keys) => expect(keys).toEqual(GLOBAL));
+  });
+
+  test('saved globalShortcuts: false registers no Cmd+Shift shortcuts', async () => {
+    await run({ mediaKeys: true, globalShortcuts: false }, (keys) => expect(keys).toEqual(MEDIA));
+  });
+
+  test('both off registers nothing', async () => {
+    await run({ mediaKeys: false, globalShortcuts: false }, (keys) => expect(keys).toEqual([]));
+  });
+
+  test('will-quit still unregisters everything', () => {
+    const { app, globalShortcut } = require('electron');
+    app.on.mock.calls.find((c) => c[0] === 'will-quit')[1]();
+    expect(globalShortcut.unregisterAll).toHaveBeenCalled();
   });
 });
