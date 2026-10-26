@@ -12,6 +12,9 @@
   const timeTotal = $('#time-total');
   const seekTimeLeft = $('#seek-time-left');
   const seekTimeRight = $('#seek-time-right');
+  const kbpsDisplay = $('#display-kbps');
+  const khzDisplay = $('#display-khz');
+  const btnFavorite = $('#btn-favorite');
   const trackNameDisplay = $('#track-name-display');
   const trackArtistDisplay = $('#track-artist-display');
   const artworkImg = $('#artwork-img');
@@ -90,6 +93,8 @@
     prevVolume: 50,
     lastArtwork: null,
     lastTrack: '',
+    persistentId: '',
+    favorited: false,
     adaptiveTheme: false,
     playlistData: null,
     playlistLastTrack: '',
@@ -218,6 +223,26 @@
 
   // ─── Visualizer ────────────────────────────────────────────────────────
   const viz = new Visualizer($('#visualizer'));
+  const VIZ_STATES = {
+    playing: 'playing',
+    paused: 'paused',
+    stopped: 'stopped',
+    'fast forwarding': 'seeking',
+    rewinding: 'seeking',
+  };
+
+  // Restore the saved visualizer mode, unless the user already picked one
+  let vizModeChosen = false;
+  (async () => {
+    const p = await window.api.prefs.load();
+    if (p.visualizer && !vizModeChosen) viz.setMode(p.visualizer);
+  })();
+
+  function cycleVizMode() {
+    vizModeChosen = true;
+    // prefs:save merges, so only the mode goes out
+    window.api.prefs.save({ visualizer: viz.nextMode() });
+  }
 
   // ─── Theme Manager ────────────────────────────────────────────────────
   const themeManager = new ThemeManager();
@@ -334,13 +359,27 @@
     requestAnimationFrame(() => {
       applyWindowConstraints();
     });
-    // Re-cache colors and re-apply transparency + text mode for the new theme
-    transparencyStyleEl.textContent = '';
-    requestAnimationFrame(() => {
-      cacheBgColors();
-      if (bgOpacity < 1) applyBgTransparency(bgOpacity);
-      if (darkTextMode) applyDarkTextMode(true);
-    });
+    reapplyOverrides();
+  });
+
+  // Re-cache colors and re-apply transparency + text mode for the theme now showing.
+  // All in one turn: the transparency CSS is cleared only to read the theme's own colors
+  // and rewritten before the next paint, so the window never flashes opaque.
+  function reapplyOverrides() {
+    cacheBgColors();
+    if (bgOpacity < 1) applyBgTransparency(bgOpacity);
+    if (darkTextMode) applyDarkTextMode(true);
+  }
+
+  // Theme hover preview: nothing is saved, and the window is not resized
+  window.addEventListener('themepreview', (e) => {
+    if (e.detail.adaptive && state.lastArtwork && artworkImg.complete && artworkImg.naturalWidth > 0) {
+      const colors = extractColors(artworkImg);
+      if (colors) {
+        document.getElementById('theme-preview-styles').textContent = applyAdaptiveColors(colors);
+      }
+    }
+    reapplyOverrides();
   });
 
   // ─── Dark / Light Text Mode ─────────────────────────────────────────
@@ -398,7 +437,7 @@
 
   function setMarquee(text) {
     marqueeText.textContent = text;
-    marqueeText.classList.remove('scrolling');
+    marqueeText.classList.remove('scrolling', 'paused', 'reversed');
 
     requestAnimationFrame(() => {
       const container = marqueeText.parentElement;
@@ -407,9 +446,60 @@
         const duration = Math.max(8, text.length * 0.35);
         marqueeText.style.setProperty('--marquee-duration', `${duration}s`);
         marqueeText.classList.add('scrolling');
+        // Reduced motion: start still. A click starts it.
+        if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+          marqueeText.classList.add('paused');
+        }
       }
     });
   }
+
+  // Bit rate in kbps, "--" when Music doesn't report one
+  function formatBitRate(kbps) {
+    return Number.isFinite(kbps) && kbps > 0 ? String(Math.min(9999, Math.round(kbps))) : '--';
+  }
+
+  // Sample rate in Hz shown as kHz without trailing zeros (44100 -> 44.1, 96000 -> 96)
+  function formatSampleRate(hz) {
+    return Number.isFinite(hz) && hz > 0 ? String(parseFloat((hz / 1000).toFixed(1))) : '--';
+  }
+
+  // ─── Favorite ──────────────────────────────────────────────────────────
+  const favorite = createFavoriteController({
+    toggle: (id) => window.api.music.toggleFavorite(id),
+    paint: (favorited) => {
+      state.favorited = favorited;
+      btnFavorite.classList.toggle('active', favorited);
+      btnFavorite.setAttribute('aria-pressed', String(favorited));
+    },
+  });
+
+  btnFavorite.addEventListener('click', () => favorite.click());
+
+  // Click the scrolling title to pause or resume it; Shift+click reverses it.
+  // A title that fits isn't scrolling, so clicks do nothing.
+  function toggleMarqueePause() {
+    if (!marqueeText.classList.contains('scrolling')) return;
+    marqueeText.classList.toggle('paused');
+  }
+
+  function reverseMarquee() {
+    if (!marqueeText.classList.contains('scrolling')) return;
+    const anim = marqueeText.getAnimations()[0];
+    // Where the text is now (0..1), so the flip doesn't make it jump
+    const timing = anim && anim.effect.getComputedTiming();
+    const reversed = marqueeText.classList.toggle('reversed');
+    // The class change can replace the animation, so move the clock on the new one
+    const current = marqueeText.getAnimations()[0];
+    if (current && timing && typeof timing.progress === 'number') {
+      current.currentTime = (reversed ? 1 - timing.progress : timing.progress) * timing.duration;
+    }
+  }
+
+  marqueeText.parentElement.addEventListener('click', (e) => {
+    if (e.shiftKey) reverseMarquee();
+    else toggleMarqueePause();
+  });
 
   // ─── Update UI from State ──────────────────────────────────────────────
   function updateUI(newState) {
@@ -422,7 +512,7 @@
     btnPlayPause.classList.toggle('active', isPlaying);
 
     player.classList.toggle('playing', isPlaying);
-    viz.setPlaying(isPlaying);
+    viz.setState(VIZ_STATES[newState.state] || 'stopped');
 
     if (artworkPlaceholder) {
       artworkPlaceholder.classList.toggle('stopped', !isPlaying);
@@ -433,6 +523,7 @@
       const displayText = `${newState.track}  \u2014  ${newState.artist}`;
       setMarquee(displayText);
       state.lastTrack = newState.track;
+      viz.trackChanged();
 
       // Update separate track info display
       trackNameDisplay.textContent = newState.track;
@@ -443,6 +534,16 @@
       trackNameDisplay.textContent = '';
       trackArtistDisplay.textContent = '';
     }
+
+    // Bit rate and sample rate come with the state, so there's no extra osascript call
+    if (kbpsDisplay) kbpsDisplay.textContent = formatBitRate(newState.bitRate);
+    if (khzDisplay) khzDisplay.textContent = formatSampleRate(newState.sampleRate);
+
+    // Favorite heart: hidden while stopped or when Music gives no track ID.
+    // It follows the polled value, except while a toggle is in flight.
+    state.persistentId = isStopped ? '' : (newState.persistentId || '');
+    btnFavorite.hidden = !state.persistentId;
+    favorite.update(state.persistentId, newState.favorited);
 
     // Album name
     if (newState.album) {
@@ -1001,7 +1102,7 @@
   btnOpenThemesFolder.addEventListener('click', () => window.api.themes.openFolder());
 
   // ─── Visualizer Mode Toggle ───────────────────────────────────────────
-  vizModeToggle.addEventListener('click', () => viz.nextMode());
+  vizModeToggle.addEventListener('click', cycleVizMode);
 
   // ─── Lyrics Panel ────────────────────────────────────────────────────
   async function fetchLyrics() {
@@ -1224,6 +1325,9 @@
   }
 
   btnMini.addEventListener('click', toggleMiniMode);
+  // Double-click the titlebar label to enter windowshade, the windowshade label to exit
+  $('#titlebar-text').addEventListener('dblclick', () => { if (!state.miniMode) toggleMiniMode(); });
+  $('#mini-title').addEventListener('dblclick', () => { if (state.miniMode) toggleMiniMode(); });
   miniExpand.addEventListener('click', () => { if (state.miniMode) toggleMiniMode(); });
   miniPrev.addEventListener('click', () => window.api.music.prev());
   miniNext.addEventListener('click', () => window.api.music.next());
@@ -1294,12 +1398,17 @@
         themeManager.toggle();
         btnThemes.classList.toggle('active', themeManager.isOpen);
         break;
-      case 'KeyV': viz.nextMode(); break;
+      case 'KeyV':
+        if (!e.repeat) cycleVizMode();
+        break;
       case 'KeyD':
         if (btnTextMode) btnTextMode.click();
         break;
       case 'KeyL': toggleLyrics(); break;
       case 'KeyE': toggleEq(); break;
+      case 'KeyF':
+        if (isFavoriteKey(e)) favorite.click();
+        break;
       case 'KeyP':
         if (!e.repeat) togglePlaylist(); // holding P must not flip it back and forth
         break;

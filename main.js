@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog, shell, screen, globalShortcut, Tray, Menu, nativeImage, Notification } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell, screen, globalShortcut, systemPreferences, Tray, Menu, nativeImage, Notification } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { execFile } = require('child_process');
@@ -16,6 +16,9 @@ let prevAlwaysOnTop = false;
 let isSnapped = false;
 let lastProgrammaticMove = 0;
 let dockIconHidden = false;
+let mediaKeysEnabled = false;
+let globalShortcutsEnabled = true;
+let shortcutProblems = { untrusted: false, failed: {} };
 let trayTrack = '';
 let trayArtist = '';
 
@@ -53,6 +56,10 @@ function createWindow() {
     titleBarStyle: 'hidden',
     trafficLightPosition: { x: -100, y: -100 },
     resizable: true,
+    // Frameless drag areas can pick up the OS titlebar double-click action (zoom);
+    // double-click is Argon's windowshade toggle, so keep the window from zooming
+    maximizable: false,
+    fullscreenable: false,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -96,10 +103,18 @@ function ensureUserThemesDir() {
 function loadPrefs() {
   try {
     if (fs.existsSync(PREFS_PATH)) {
-      return JSON.parse(fs.readFileSync(PREFS_PATH, 'utf-8'));
+      const saved = JSON.parse(fs.readFileSync(PREFS_PATH, 'utf-8'));
+      // Existing installs captured the media keys before this was a choice, so keep it on for them
+      if (saved && typeof saved === 'object' && !Array.isArray(saved) && typeof saved.mediaKeys !== 'boolean') {
+        saved.mediaKeys = true;
+      }
+      return saved;
     }
   } catch (e) { /* ignore */ }
-  return { theme: 'classic-winamp', visualizer: 'bars', alwaysOnTop: false, hideDockIcon: false };
+  return {
+    theme: 'classic-winamp', visualizer: 'bars', alwaysOnTop: false, hideDockIcon: false,
+    mediaKeys: false, globalShortcuts: true,
+  };
 }
 
 // Save preferences
@@ -115,16 +130,25 @@ function updatePrefs(changes) {
 }
 
 // AppleScript execution helper
-function runAppleScript(script) {
+// Extra args reach the script's `on run argv`, so values are never interpolated into the source
+function runAppleScript(script, args = []) {
   return new Promise((resolve, reject) => {
-    execFile('osascript', ['-e', script], { timeout: 5000 }, (err, stdout, stderr) => {
+    execFile('osascript', args.length ? ['-e', script, '--', ...args] : ['-e', script], { timeout: 5000 }, (err, stdout, stderr) => {
       if (err) reject(err);
       else resolve(stdout.trim());
     });
   });
 }
 
+// Bit rate / sample rate from Music: 0, "missing value" and anything non-numeric mean unknown
+function parseRate(value) {
+  const n = Number(value);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
 // ─── Apple Music IPC Handlers ────────────────────────────────────────────────
+
+const PERSISTENT_ID_RE = /^[0-9A-F]{16}$/i;
 
 ipcMain.handle('music:getState', async () => {
   try {
@@ -139,6 +163,10 @@ ipcMain.handle('music:getState', async () => {
         set playerVol to sound volume
         set isShuffling to false
         set repeatMode to "off"
+        set trackBitRate to "0"
+        set trackSampleRate to "0"
+        set trackPersistentId to ""
+        set trackFavorited to "false"
 
         if playerState is not "stopped" then
           set trackName to name of current track
@@ -148,9 +176,21 @@ ipcMain.handle('music:getState', async () => {
           set playerPos to player position
           set isShuffling to shuffle enabled
           set repeatMode to song repeat as string
+          try
+            set trackBitRate to (bit rate of current track) as string
+          end try
+          try
+            set trackSampleRate to (sample rate of current track) as string
+          end try
+          try
+            set trackPersistentId to (persistent ID of current track) as string
+          end try
+          try
+            set trackFavorited to (favorited of current track) as string
+          end try
         end if
 
-        return playerState & "||" & trackName & "||" & trackArtist & "||" & trackAlbum & "||" & trackDuration & "||" & playerPos & "||" & playerVol & "||" & isShuffling & "||" & repeatMode
+        return playerState & "||" & trackName & "||" & trackArtist & "||" & trackAlbum & "||" & trackDuration & "||" & playerPos & "||" & playerVol & "||" & isShuffling & "||" & repeatMode & "||" & trackBitRate & "||" & trackSampleRate & "||" & trackPersistentId & "||" & trackFavorited
       end tell
     `;
     const result = await runAppleScript(script);
@@ -165,10 +205,38 @@ ipcMain.handle('music:getState', async () => {
       volume: parseInt(parts[6]) || 50,
       shuffle: parts[7] === 'true',
       repeat: parts[8] || 'off',
+      bitRate: parseRate(parts[9]),
+      sampleRate: parseRate(parts[10]),
+      persistentId: PERSISTENT_ID_RE.test(parts[11]) ? parts[11] : '',
+      favorited: parts[12] === 'true',
     };
   } catch (e) {
-    return { state: 'stopped', track: '', artist: '', album: '', duration: 0, position: 0, volume: 50, shuffle: false, repeat: 'off' };
+    return { state: 'stopped', track: '', artist: '', album: '', duration: 0, position: 0, volume: 50, shuffle: false, repeat: 'off', bitRate: null, sampleRate: null, persistentId: '', favorited: false };
   }
+});
+
+// Toggles `favorited` on the current track, but only if it's still the track the user saw.
+// Returns the new value (true/false) or 'stale' when the track changed in the meantime.
+const TOGGLE_FAVORITE_SCRIPT = `
+  on run argv
+    tell application "Music"
+      set t to current track
+      if persistent ID of t is not (item 1 of argv) then return "stale"
+      set favorited of t to not (favorited of t)
+      return favorited of t as string
+    end tell
+  end run
+`;
+
+ipcMain.handle('music:toggleFavorite', async (_, persistentId) => {
+  if (typeof persistentId !== 'string' || !PERSISTENT_ID_RE.test(persistentId)) {
+    throw new Error('Invalid track ID');
+  }
+  const result = await runAppleScript(TOGGLE_FAVORITE_SCRIPT, [persistentId]);
+  if (result === 'true') return true;
+  if (result === 'false') return false;
+  if (result === 'stale') return 'stale';
+  throw new Error('Unexpected response from Music');
 });
 
 ipcMain.handle('music:getArtwork', async () => {
@@ -557,6 +625,7 @@ ipcMain.handle('prefs:save', (_, prefs) => {
     theme: 'string', visualizer: 'string', alwaysOnTop: 'boolean',
     transparency: 'number', darkText: 'boolean', eqBands: 'object',
     eqPreset: 'string', miniMode: 'boolean', hideDockIcon: 'boolean',
+    mediaKeys: 'boolean', globalShortcuts: 'boolean',
     playlistVisible: 'boolean',
   };
   const sanitized = {};
@@ -567,6 +636,9 @@ ipcMain.handle('prefs:save', (_, prefs) => {
   }
   // Merge, so keys the renderer doesn't send (hideDockIcon, owned by the tray menu) survive
   updatePrefs(sanitized);
+  // Shortcut changes apply right away
+  if ('mediaKeys' in sanitized) setShortcutGroup('media', sanitized.mediaKeys);
+  if ('globalShortcuts' in sanitized) setShortcutGroup('global', sanitized.globalShortcuts);
 });
 
 // ─── Tray ───────────────────────────────────────────────────────────────────
@@ -694,6 +766,25 @@ function updateTrayMenu(track, artist, windowInFront = mainWindowInFront()) {
         updateTrayMenu(trayTrack, trayArtist);
       },
     }] : []),
+    {
+      label: 'Capture Media Keys',
+      type: 'checkbox',
+      checked: mediaKeysEnabled,
+      click: () => {
+        setShortcutGroup('media', !mediaKeysEnabled, true);
+        updatePrefs({ mediaKeys: mediaKeysEnabled });
+      },
+    },
+    {
+      label: 'Global Shortcuts (Cmd+Shift)',
+      type: 'checkbox',
+      checked: globalShortcutsEnabled,
+      click: () => {
+        setShortcutGroup('global', !globalShortcutsEnabled);
+        updatePrefs({ globalShortcuts: globalShortcutsEnabled });
+      },
+    },
+    ...shortcutProblemItems(),
     { type: 'separator' },
     { label: 'Quit Argon', click: () => { tray = null; app.quit(); } },
   ]);
@@ -701,27 +792,64 @@ function updateTrayMenu(track, artist, windowInFront = mainWindowInFront()) {
 
 // ─── Global Shortcuts ───────────────────────────────────────────────────────
 
-function registerGlobalShortcuts() {
-  globalShortcut.register('MediaPlayPause', () => {
-    runAppleScript('tell application "Music" to playpause');
-  });
-  globalShortcut.register('MediaNextTrack', () => {
-    runAppleScript('tell application "Music" to next track');
-  });
-  globalShortcut.register('MediaPreviousTrack', () => {
-    runAppleScript('tell application "Music" to previous track');
-  });
-  globalShortcut.register('CommandOrControl+Shift+Up', () => {
-    runAppleScript('tell application "Music" to set sound volume to (sound volume + 5)');
-  });
-  globalShortcut.register('CommandOrControl+Shift+Down', () => {
-    runAppleScript('tell application "Music" to set sound volume to (sound volume - 5)');
-  });
-  globalShortcut.register('CommandOrControl+Shift+M', () => {
-    // Closing the window destroys it, so bring it back instead of throwing
-    if (!mainWindow || mainWindow.isDestroyed()) createWindow();
-    else mainWindow.webContents.send('toggle-mini-mode');
-  });
+const runMusic = (script) => () => runAppleScript(`tell application "Music" to ${script}`);
+
+const SHORTCUT_GROUPS = {
+  media: {
+    MediaPlayPause: runMusic('playpause'),
+    MediaNextTrack: runMusic('next track'),
+    MediaPreviousTrack: runMusic('previous track'),
+  },
+  global: {
+    'CommandOrControl+Shift+Up': runMusic('set sound volume to (sound volume + 5)'),
+    'CommandOrControl+Shift+Down': runMusic('set sound volume to (sound volume - 5)'),
+    'CommandOrControl+Shift+M': () => {
+      // Closing the window destroys it, so bring it back instead of throwing
+      if (!mainWindow || mainWindow.isDestroyed()) createWindow();
+      else mainWindow.webContents.send('toggle-mini-mode');
+    },
+  },
+};
+
+const ACCESSIBILITY_SETTINGS_URL = 'x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility';
+
+// Turn one group of shortcuts on or off: unregister its accelerators, then register them if enabled.
+// `prompt` lets macOS ask for Accessibility access, so it's only set when the user just turned the keys on.
+function setShortcutGroup(group, enabled, prompt = false) {
+  if (group === 'media') mediaKeysEnabled = enabled;
+  else globalShortcutsEnabled = enabled;
+
+  // Media keys only register once Argon is a trusted accessibility client. Electron refuses them
+  // otherwise, and that refusal isn't another app holding the key, so don't report it as one.
+  const untrusted = group === 'media' && enabled && !systemPreferences.isTrustedAccessibilityClient(prompt);
+  if (group === 'media') shortcutProblems.untrusted = untrusted;
+
+  const accelerators = SHORTCUT_GROUPS[group];
+  for (const accelerator of Object.keys(accelerators)) {
+    globalShortcut.unregister(accelerator);
+    delete shortcutProblems.failed[accelerator];
+    if (enabled && !globalShortcut.register(accelerator, accelerators[accelerator]) && !untrusted) {
+      shortcutProblems.failed[accelerator] = true;
+    }
+  }
+  updateTrayMenu(trayTrack, trayArtist);
+}
+
+// Tray menu lines for shortcuts that are on but not working
+function shortcutProblemItems() {
+  const items = [];
+  if (shortcutProblems.untrusted) {
+    items.push({
+      label: 'Media Keys Need Accessibility Permission…',
+      click: () => shell.openExternal(ACCESSIBILITY_SETTINGS_URL),
+    });
+  }
+  const inUse = Object.keys(shortcutProblems.failed)
+    .map((accelerator) => accelerator.replace('CommandOrControl', 'Cmd'));
+  if (inUse.length) {
+    items.push({ label: `In use by another app: ${inUse.join(', ')}`, enabled: false });
+  }
+  return items;
 }
 
 // ─── App Lifecycle ──────────────────────────────────────────────────────────
@@ -731,7 +859,9 @@ app.whenReady().then(() => {
   if (loadPrefs().hideDockIcon === true) setDockIconHidden(true);
   createWindow();
   createTray();
-  registerGlobalShortcuts();
+  const prefs = loadPrefs();
+  setShortcutGroup('media', prefs.mediaKeys === true);
+  setShortcutGroup('global', prefs.globalShortcuts !== false);
 });
 
 app.on('will-quit', () => {

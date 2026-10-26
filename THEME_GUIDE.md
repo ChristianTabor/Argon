@@ -151,6 +151,7 @@ Show or hide any section:
   --show-visualizer: flex;   /* flex | none */
   --show-display: block;     /* block | none */
   --show-display-top: flex;  /* flex | none (KBPS/KHZ/STEREO row) */
+  --show-favorite: flex;     /* flex | none (heart button in the KBPS/KHZ/STEREO row) */
   --show-album: block;       /* block | none */
   --show-artwork: flex;      /* flex | none */
   --show-seek: flex;         /* flex | none */
