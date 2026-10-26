@@ -1208,6 +1208,14 @@
     }
   })();
 
+  // ─── Drops ────────────────────────────────────────────────────────────
+  // Dropping a link or file would navigate the window away from Argon
+  document.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'none';
+  });
+  document.addEventListener('drop', (e) => e.preventDefault());
+
   // ─── Keyboard Shortcuts ───────────────────────────────────────────────
   document.addEventListener('keydown', (e) => {
     // Don't capture shortcuts when typing in select/input
