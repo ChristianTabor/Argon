@@ -12,6 +12,8 @@
   const timeTotal = $('#time-total');
   const seekTimeLeft = $('#seek-time-left');
   const seekTimeRight = $('#seek-time-right');
+  const kbpsDisplay = $('#display-kbps');
+  const khzDisplay = $('#display-khz');
   const trackNameDisplay = $('#track-name-display');
   const trackArtistDisplay = $('#track-artist-display');
   const artworkImg = $('#artwork-img');
@@ -387,6 +389,16 @@
     });
   }
 
+  // Bit rate in kbps, "--" when Music doesn't report one
+  function formatBitRate(kbps) {
+    return Number.isFinite(kbps) && kbps > 0 ? String(Math.min(9999, Math.round(kbps))) : '--';
+  }
+
+  // Sample rate in Hz shown as kHz without trailing zeros (44100 -> 44.1, 96000 -> 96)
+  function formatSampleRate(hz) {
+    return Number.isFinite(hz) && hz > 0 ? String(parseFloat((hz / 1000).toFixed(1))) : '--';
+  }
+
   // ─── Update UI from State ──────────────────────────────────────────────
   function updateUI(newState) {
     const isPlaying = newState.state === 'playing';
@@ -419,6 +431,10 @@
       trackNameDisplay.textContent = '';
       trackArtistDisplay.textContent = '';
     }
+
+    // Bit rate and sample rate come with the state, so there's no extra osascript call
+    if (kbpsDisplay) kbpsDisplay.textContent = formatBitRate(newState.bitRate);
+    if (khzDisplay) khzDisplay.textContent = formatSampleRate(newState.sampleRate);
 
     // Album name
     if (newState.album) {

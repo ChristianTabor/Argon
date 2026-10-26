@@ -292,6 +292,10 @@ button {
   text-shadow: 0 0 8px var(--accent-glow);
 }
 
+#display-kbps { min-width: 4ch; }
+#display-khz { min-width: 4ch; }
+
+/* STEREO is a static label: Music doesn't report channel count, so it is never lit */
 .stereo-display { margin-left: auto; }
 
 .stereo-indicator {

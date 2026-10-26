@@ -370,6 +370,52 @@ describe('App.js Logic', () => {
   });
 });
 
+describe('Bit rate and sample rate display', () => {
+  let html, appCode, css, formatBitRate, formatSampleRate;
+
+  beforeAll(() => {
+    html = fs.readFileSync(path.join(__dirname, '..', 'src', 'index.html'), 'utf-8');
+    appCode = fs.readFileSync(path.join(__dirname, '..', 'src', 'js', 'app.js'), 'utf-8');
+    css = fs.readFileSync(path.join(__dirname, '..', 'src', 'styles', 'base.css'), 'utf-8');
+    const grab = (name) => appCode.match(new RegExp(`function ${name}\\([\\s\\S]*?\\n  }\\n`))[0];
+    ({ formatBitRate, formatSampleRate } = new Function(
+      `${grab('formatBitRate')}${grab('formatSampleRate')} return { formatBitRate, formatSampleRate };`
+    )());
+  });
+
+  test('markup no longer hardcodes 256 and 44', () => {
+    expect(html).toMatch(/id="display-kbps">--</);
+    expect(html).toMatch(/id="display-khz">--</);
+  });
+
+  test('STEREO is static and not lit', () => {
+    expect(html).toContain('<span class="stereo-indicator">STEREO</span>');
+  });
+
+  test('values reserve width so 4-digit numbers do not shift the layout', () => {
+    expect(css).toMatch(/#display-kbps\s*{\s*min-width: 4ch/);
+  });
+
+  test('updateUI writes the rates from state', () => {
+    expect(appCode).toMatch(/function updateUI[\s\S]*?formatBitRate\(newState\.bitRate\)[\s\S]*?formatSampleRate\(newState\.sampleRate\)/);
+  });
+
+  test('formatBitRate rounds, and shows -- for unknown values', () => {
+    expect(formatBitRate(256)).toBe('256');
+    expect(formatBitRate(1411.2)).toBe('1411');
+    expect(formatBitRate(99999)).toBe('9999');
+    for (const bad of [0, null, undefined, NaN, -5, 'x']) expect(formatBitRate(bad)).toBe('--');
+  });
+
+  test('formatSampleRate shows kHz without trailing zeros', () => {
+    expect(formatSampleRate(44100)).toBe('44.1');
+    expect(formatSampleRate(48000)).toBe('48');
+    expect(formatSampleRate(96000)).toBe('96');
+    expect(formatSampleRate(192000)).toBe('192');
+    for (const bad of [0, null, undefined, NaN, -5, 'x']) expect(formatSampleRate(bad)).toBe('--');
+  });
+});
+
 describe('Windowshade Bar', () => {
   let html, css, appCode, miniButtons;
 
