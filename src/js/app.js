@@ -310,13 +310,28 @@
     requestAnimationFrame(() => {
       applyWindowConstraints();
     });
-    // Re-cache colors and re-apply transparency + text mode for the new theme
+    reapplyOverrides();
+  });
+
+  // Re-cache colors and re-apply transparency + text mode for the theme now showing
+  function reapplyOverrides() {
     transparencyStyleEl.textContent = '';
     requestAnimationFrame(() => {
       cacheBgColors();
       if (bgOpacity < 1) applyBgTransparency(bgOpacity);
       if (darkTextMode) applyDarkTextMode(true);
     });
+  }
+
+  // Theme hover preview: nothing is saved, and the window is not resized
+  window.addEventListener('themepreview', (e) => {
+    if (e.detail.adaptive && state.lastArtwork && artworkImg.complete && artworkImg.naturalWidth > 0) {
+      const colors = extractColors(artworkImg);
+      if (colors) {
+        document.getElementById('theme-preview-styles').textContent = applyAdaptiveColors(colors);
+      }
+    }
+    reapplyOverrides();
   });
 
   // ─── Dark / Light Text Mode ─────────────────────────────────────────
