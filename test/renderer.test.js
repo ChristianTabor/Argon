@@ -351,6 +351,88 @@ describe('App.js Logic', () => {
     });
   });
 
+  describe('Marquee Click', () => {
+    // Run the real functions from app.js against a stand-in for the marquee element
+    function makeMarquee(classes) {
+      const set = new Set(classes);
+      return {
+        classList: {
+          contains: (c) => set.has(c),
+          add: (...cs) => cs.forEach((c) => set.add(c)),
+          remove: (...cs) => cs.forEach((c) => set.delete(c)),
+          toggle(c) { if (set.has(c)) { set.delete(c); return false; } set.add(c); return true; },
+        },
+        getAnimations: () => [],
+        has: (c) => set.has(c),
+      };
+    }
+    let load;
+
+    beforeAll(() => {
+      const grab = (re) => appCode.match(re)[0];
+      const src = [
+        grab(/function toggleMarqueePause[\s\S]*?\n  }\n/),
+        grab(/function reverseMarquee[\s\S]*?\n  }\n/),
+        'return { toggleMarqueePause, reverseMarquee };',
+      ].join('\n');
+      load = (marqueeText) => new Function('marqueeText', src)(marqueeText);
+    });
+
+    test('click pauses a scrolling title and a second click resumes it', () => {
+      const m = makeMarquee(['scrolling']);
+      const { toggleMarqueePause } = load(m);
+      toggleMarqueePause();
+      expect(m.has('paused')).toBe(true);
+      toggleMarqueePause();
+      expect(m.has('paused')).toBe(false);
+    });
+
+    test('a title that fits does not react to clicks', () => {
+      const m = makeMarquee([]);
+      const { toggleMarqueePause, reverseMarquee } = load(m);
+      toggleMarqueePause();
+      reverseMarquee();
+      expect(m.has('paused')).toBe(false);
+      expect(m.has('reversed')).toBe(false);
+    });
+
+    test('Shift+click reverses a scrolling title and flips it back', () => {
+      const m = makeMarquee(['scrolling']);
+      const { reverseMarquee } = load(m);
+      reverseMarquee();
+      expect(m.has('reversed')).toBe(true);
+      reverseMarquee();
+      expect(m.has('reversed')).toBe(false);
+    });
+
+    test('reversing keeps the text where it is', () => {
+      const m = makeMarquee(['scrolling']);
+      const anim = { effect: { getComputedTiming: () => ({ progress: 0.25, duration: 10000 }) }, currentTime: 0 };
+      m.getAnimations = () => [anim];
+      const { reverseMarquee } = load(m);
+      reverseMarquee();
+      expect(anim.currentTime).toBe(7500);
+      anim.effect.getComputedTiming = () => ({ progress: 0.25, duration: 10000 });
+      reverseMarquee();
+      expect(anim.currentTime).toBe(2500);
+    });
+
+    test('a new title resets paused and reversed, and starts paused for reduced motion', () => {
+      expect(appCode).toMatch(/function setMarquee[\s\S]*?classList\.remove\('scrolling', 'paused', 'reversed'\)/);
+      expect(appCode).toMatch(/prefers-reduced-motion: reduce[\s\S]*?classList\.add\('paused'\)/);
+    });
+
+    test('clicks on the marquee box are wired up', () => {
+      expect(appCode).toMatch(/marqueeText\.parentElement\.addEventListener\('click'[\s\S]*?e\.shiftKey/);
+    });
+
+    test('CSS pauses the animation and reverses its direction', () => {
+      const css = fs.readFileSync(path.join(__dirname, '..', 'src', 'styles', 'base.css'), 'utf-8');
+      expect(css).toMatch(/\.marquee-content\.scrolling\.paused\s*\{[^}]*animation-play-state:\s*paused/);
+      expect(css).toMatch(/\.marquee-content\.scrolling\.reversed\s*\{\s*animation-direction:\s*reverse/);
+    });
+  });
+
   describe('Panel Mutual Exclusion', () => {
     test('lyrics toggle closes EQ panel', () => {
       expect(appCode).toMatch(/toggleLyrics[\s\S]*?closeEq\(\)/);
