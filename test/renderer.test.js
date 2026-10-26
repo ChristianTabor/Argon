@@ -33,6 +33,12 @@ describe('HTML Structure', () => {
     expect(html).toContain('title="Windowshade (Cmd+Shift+M)"');
   });
 
+  test('contains PL button in the bottom bar, next to EQ', () => {
+    expect(html).toMatch(/id="btn-playlist"[^>]*title="Playlist \(P\)"/);
+    expect(html.indexOf('id="btn-playlist"')).toBeGreaterThan(html.indexOf('class="bottom-bar"'));
+    expect(html.indexOf('id="btn-playlist"')).toBeLessThan(html.indexOf('id="btn-eq"'));
+  });
+
   test('contains lyrics panel', () => {
     expect(html).toContain('id="lyrics-panel"');
     expect(html).toContain('id="lyrics-content"');
@@ -93,6 +99,22 @@ describe('CSS Styles', () => {
     expect(css).toContain('.lyrics-content');
     expect(css).toContain('.lyrics-placeholder');
     expect(css).toContain('.lyrics-panel-close');
+  });
+
+  test('PL button overrides the theme playlist default and mini mode still wins', () => {
+    expect(css).toContain('.player.playlist-forced-on .playlist-container { display: flex !important; }');
+    expect(css).toContain('.player.playlist-forced-off .playlist-container { display: none !important; }');
+    // Equal specificity and both !important, so the later rule wins: mini mode must come last
+    expect(css.indexOf('.player.playlist-forced-off')).toBeLessThan(css.indexOf('.player.mini-mode .playlist-container'));
+  });
+
+  test('forcing the playlist on gives the added height to the playlist, not the artwork', () => {
+    expect(css).toMatch(/\.player\.playlist-forced-on \.artwork-container\s*\{\s*flex-grow:\s*0;/);
+  });
+
+  test('themes can hide the PL button with --show-playlist-toggle', () => {
+    expect(css).toContain('--show-playlist-toggle: flex;');
+    expect(css).toMatch(/#btn-playlist\s*\{\s*display:\s*var\(--show-playlist-toggle\)/);
   });
 
   test('contains EQ panel styles', () => {
@@ -348,6 +370,67 @@ describe('App.js Logic', () => {
 
     test('calls updateMiniPlayerUI from updateUI', () => {
       expect(appCode).toMatch(/function updateUI[\s\S]*?updateMiniPlayerUI\(\)/);
+    });
+  });
+
+  describe('Playlist Toggle', () => {
+    // app.js is an IIFE, so pull the two pure helpers out of the source and run them
+    let resolvePlaylistVisible, playlistWindowHeight;
+
+    beforeAll(() => {
+      const grab = (re) => appCode.match(re)[0];
+      const src = [
+        grab(/const PLAYLIST_EXTRA_HEIGHT = \d+;/),
+        grab(/function resolvePlaylistVisible[\s\S]*?\n  }\n/),
+        grab(/function playlistWindowHeight[\s\S]*?\n  }\n/),
+        'return { resolvePlaylistVisible, playlistWindowHeight };',
+      ].join('\n');
+      ({ resolvePlaylistVisible, playlistWindowHeight } = new Function(src)());
+    });
+
+    test('theme default applies when there is no override', () => {
+      expect(resolvePlaylistVisible(true, undefined)).toBe(true);
+      expect(resolvePlaylistVisible(false, undefined)).toBe(false);
+    });
+
+    test('an explicit override beats the theme default', () => {
+      expect(resolvePlaylistVisible(false, true)).toBe(true);
+      expect(resolvePlaylistVisible(true, false)).toBe(false);
+    });
+
+    test('window grows only when forcing the playlist on in a theme that hides it', () => {
+      expect(playlistWindowHeight(440, 1200, false, true)).toBe(660);
+      expect(playlistWindowHeight(440, 1200, false, false)).toBe(440);
+      expect(playlistWindowHeight(440, 1200, true, true)).toBe(440);
+      expect(playlistWindowHeight(440, 1200, true, false)).toBe(440);
+    });
+
+    test('grown height is capped at the theme max height', () => {
+      expect(playlistWindowHeight(440, 600, false, true)).toBe(600);
+      expect(playlistWindowHeight(500, 500, false, true)).toBe(500);
+    });
+
+    test('forced classes mark only a difference from the theme default', () => {
+      expect(appCode).toContain("state.playlistVisible === true && !themeDefault");
+      expect(appCode).toContain("state.playlistVisible === false && themeDefault");
+    });
+
+    test('state starts with no override', () => {
+      expect(appCode).toContain('playlistVisible: undefined');
+    });
+
+    test('P key toggles the playlist', () => {
+      expect(appCode).toMatch(/case\s*'KeyP':\s*togglePlaylist\(\)/);
+    });
+
+    test('toggle is ignored in mini mode and saves the override', () => {
+      expect(appCode).toMatch(/function togglePlaylist\(\)\s*\{\s*if \(state\.miniMode\) return;/);
+      expect(appCode).toContain('prefs.playlistVisible = state.playlistVisible');
+    });
+
+    test('window constraints account for the playlist and theme changes refresh the button', () => {
+      expect(appCode).toMatch(/function applyWindowConstraints[\s\S]*?playlistWindowHeight\(/);
+      expect(appCode).toMatch(/addEventListener\('themechange'[\s\S]*?updatePlaylistUI\(\)/);
     });
   });
 

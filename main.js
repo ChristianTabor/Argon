@@ -544,6 +544,7 @@ ipcMain.handle('prefs:save', (_, prefs) => {
     theme: 'string', visualizer: 'string', alwaysOnTop: 'boolean',
     transparency: 'number', darkText: 'boolean', eqBands: 'object',
     eqPreset: 'string', miniMode: 'boolean', hideDockIcon: 'boolean',
+    playlistVisible: 'boolean',
   };
   const sanitized = {};
   for (const [key, type] of Object.entries(allowed)) {

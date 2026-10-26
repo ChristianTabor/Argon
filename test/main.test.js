@@ -385,6 +385,16 @@ describe('Prefs', () => {
     expect(JSON.parse(fs.writeFileSync.mock.calls[0][1]).hideDockIcon).toBe(false);
   });
 
+  test('prefs:save keeps playlistVisible only when it is a boolean', () => {
+    const fs = require('fs');
+    fs.writeFileSync.mockClear();
+    ipcHandlers['prefs:save']({}, { playlistVisible: true });
+    expect(JSON.parse(fs.writeFileSync.mock.calls[0][1]).playlistVisible).toBe(true);
+    fs.writeFileSync.mockClear();
+    ipcHandlers['prefs:save']({}, { playlistVisible: 'yes' });
+    expect(JSON.parse(fs.writeFileSync.mock.calls[0][1])).not.toHaveProperty('playlistVisible');
+  });
+
   test('prefs:save merges into saved prefs instead of clobbering main-process keys', () => {
     const fs = require('fs');
     fs.existsSync.mockImplementation((p) => String(p).endsWith('prefs.json'));

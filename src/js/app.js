@@ -38,6 +38,7 @@
   const btnClose = $('#btn-close');
   const btnThemes = $('#btn-themes');
   const btnEq = $('#btn-eq');
+  const btnPlaylist = $('#btn-playlist');
   const btnCloseThemes = $('#btn-close-themes');
   const btnInstallTheme = $('#btn-install-theme');
   const btnOpenThemesFolder = $('#btn-open-themes-folder');
@@ -92,6 +93,7 @@
     adaptiveTheme: false,
     playlistData: null,
     playlistLastTrack: '',
+    playlistVisible: undefined, // true | false = user override from the PL button, undefined = follow the theme
     notifiedTrack: '',
     lyricsOpen: false,
     lyricsTrack: '',
@@ -105,14 +107,35 @@
   let volumeDragging = false;
 
   // ─── Window Constraints ───────────────────────────────────────────────
-  function applyWindowConstraints() {
+  // A theme that hides the playlist has no room for it, so forcing it on adds height
+  const PLAYLIST_EXTRA_HEIGHT = 220;
+
+  function resolvePlaylistVisible(themeDefault, override) {
+    return typeof override === 'boolean' ? override : themeDefault;
+  }
+
+  function playlistWindowHeight(minH, maxH, themeDefault, visible) {
+    if (visible && !themeDefault) return Math.min(minH + PLAYLIST_EXTRA_HEIGHT, maxH);
+    return minH;
+  }
+
+  function playlistThemeDefault() {
+    const v = getComputedStyle(document.documentElement).getPropertyValue('--show-playlist').trim();
+    return v !== '' && v !== 'none';
+  }
+
+  function applyWindowConstraints(keepWidth) {
     const style = getComputedStyle(document.documentElement);
     const baseW = parseInt(style.getPropertyValue('--base-width').trim()) || 300;
     const minW  = parseInt(style.getPropertyValue('--window-min-width').trim()) || 275;
     const minH  = parseInt(style.getPropertyValue('--window-min-height').trim()) || 440;
     const maxW  = parseInt(style.getPropertyValue('--window-max-width').trim()) || 800;
     const maxH  = parseInt(style.getPropertyValue('--window-max-height').trim()) || 1200;
-    window.api.window.applyConstraints(minW, minH, maxW, maxH, baseW, minH);
+    const themeDefault = playlistThemeDefault();
+    const visible = resolvePlaylistVisible(themeDefault, state.playlistVisible);
+    const h = playlistWindowHeight(minH, maxH, themeDefault, visible);
+    const w = keepWidth ? Math.min(Math.max(window.innerWidth, minW), maxW) : baseW;
+    window.api.window.applyConstraints(minW, h, maxW, maxH, w, h);
   }
 
   // ─── CSS Transition-Based Seek ────────────────────────────────────────
@@ -307,6 +330,7 @@
       }
     }
     // Update window constraints for new theme
+    updatePlaylistUI();
     requestAnimationFrame(() => {
       applyWindowConstraints();
     });
@@ -1127,6 +1151,45 @@
     if (p.eqPreset) eqPresetSelect.value = p.eqPreset;
   })();
 
+  // ─── Playlist Toggle (PL button) ─────────────────────────────────────
+  function isPlaylistVisible() {
+    return resolvePlaylistVisible(playlistThemeDefault(), state.playlistVisible);
+  }
+
+  function updatePlaylistUI() {
+    // The classes mark only a real difference from the theme, so a matching override leaves the theme's own layout alone
+    const themeDefault = playlistThemeDefault();
+    player.classList.toggle('playlist-forced-on', state.playlistVisible === true && !themeDefault);
+    player.classList.toggle('playlist-forced-off', state.playlistVisible === false && themeDefault);
+    btnPlaylist.classList.toggle('active', isPlaylistVisible());
+  }
+
+  function togglePlaylist() {
+    if (state.miniMode) return;
+    state.playlistVisible = !isPlaylistVisible();
+    updatePlaylistUI();
+    if (state.playlistVisible && !state.playlistData) fetchPlaylist();
+    applyWindowConstraints(true);
+    (async () => {
+      const prefs = await window.api.prefs.load();
+      prefs.playlistVisible = state.playlistVisible;
+      await window.api.prefs.save(prefs);
+    })();
+  }
+
+  btnPlaylist.addEventListener('click', togglePlaylist);
+  updatePlaylistUI();
+
+  // Restore the override from prefs on startup
+  (async () => {
+    const p = await window.api.prefs.load();
+    if (typeof p.playlistVisible === 'boolean') {
+      state.playlistVisible = p.playlistVisible;
+      updatePlaylistUI();
+      if (!p.miniMode) applyWindowConstraints();
+    }
+  })();
+
   // ─── Mini Mode ───────────────────────────────────────────────────────
   function updateMiniPlayerUI() {
     if (!state.miniMode) return;
@@ -1250,6 +1313,7 @@
         break;
       case 'KeyL': toggleLyrics(); break;
       case 'KeyE': toggleEq(); break;
+      case 'KeyP': togglePlaylist(); break;
     }
   });
 })();
