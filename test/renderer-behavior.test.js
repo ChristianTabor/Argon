@@ -42,6 +42,14 @@ describe('renderer behavior', () => {
   let api;
   let poll;
   let toggleMini;
+  let frames;
+
+  // Run the animation frames queued so far (new ones wait for the next call)
+  function flushFrames() {
+    const queued = frames;
+    frames = [];
+    for (const fn of queued) fn();
+  }
 
   beforeAll(async () => {
     const html = fs.readFileSync(path.join(__dirname, '../src/index.html'), 'utf8')
@@ -52,7 +60,8 @@ describe('renderer behavior', () => {
 
     installCanvasStub();
     window.devicePixelRatio = 1;
-    window.requestAnimationFrame = () => 1;
+    frames = [];
+    window.requestAnimationFrame = (fn) => frames.push(fn);
     window.cancelAnimationFrame = () => {};
     window.HTMLElement.prototype.scrollIntoView = () => {};
     poll = null;
@@ -78,6 +87,7 @@ describe('renderer behavior', () => {
         toggleShuffle: jest.fn(async () => {}),
         toggleRepeat: jest.fn(async () => {}),
         playTrackIndex: jest.fn(async () => {}),
+        toggleFavorite: jest.fn(async () => true),
       },
       notifications: { trackChange: jest.fn(async () => {}) },
       tray: { updateTrack: jest.fn(async () => {}) },
@@ -106,8 +116,13 @@ describe('renderer behavior', () => {
     };
     window.api = api;
 
+    // Same order as index.html. In the page favorite.js and playlist-layout.js define globals;
+    // under require() they export instead, so put those exports on window before app.js runs.
     require('../src/js/visualizer.js');
     require('../src/js/theme-manager.js');
+    window.createFavoriteController = require('../src/js/favorite.js').createFavoriteController;
+    window.isFavoriteKey = require('../src/js/favorite.js').isFavoriteKey;
+    window.PlaylistLayout = require('../src/js/playlist-layout.js');
     require('../src/js/app.js');
     await settle();
   });
@@ -207,5 +222,24 @@ describe('renderer behavior', () => {
     document.getElementById('viz-mode-toggle').click();
     expect(spy).toHaveBeenCalled();
     spy.mockRestore();
+  });
+
+  test('index.html loads favorite.js and playlist-layout.js before app.js', () => {
+    const html = fs.readFileSync(path.join(__dirname, '../src/index.html'), 'utf8');
+    const order = [...html.matchAll(/<script src="js\/([^"]+)"/g)].map((m) => m[1]);
+    expect(order.indexOf('favorite.js')).toBeGreaterThan(-1);
+    expect(order.indexOf('playlist-layout.js')).toBeGreaterThan(-1);
+    expect(order.indexOf('favorite.js')).toBeLessThan(order.indexOf('app.js'));
+    expect(order.indexOf('playlist-layout.js')).toBeLessThan(order.indexOf('app.js'));
+  });
+
+  test('a themechange resizes the window from the new theme CSS', () => {
+    document.getElementById('theme-styles').textContent =
+      ':root { --base-width: 320; --window-min-width: 280; --window-min-height: 400; --window-max-width: 900; --window-max-height: 1000; }';
+    api.window.applyConstraints.mockClear();
+    window.dispatchEvent(new CustomEvent('themechange', { detail: { themeId: 'wide', meta: { name: 'Wide' }, adaptive: false } }));
+    expect(api.window.applyConstraints).not.toHaveBeenCalled(); // waits a frame for the CSS to apply
+    flushFrames();
+    expect(api.window.applyConstraints).toHaveBeenCalledWith(280, 400, 900, 1000, 320, 400);
   });
 });

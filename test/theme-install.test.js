@@ -10,7 +10,7 @@ const mockWindow = {
   loadFile: jest.fn(),
   setAlwaysOnTop: jest.fn(),
   on: jest.fn(),
-  webContents: { send: jest.fn(), openDevTools: jest.fn() },
+  webContents: { send: jest.fn(), openDevTools: jest.fn(), on: jest.fn(), setWindowOpenHandler: jest.fn() },
   isVisible: jest.fn(() => true),
   isFocused: jest.fn(() => true),
   isDestroyed: jest.fn(() => false),
@@ -52,11 +52,12 @@ jest.mock('electron', () => ({
     }),
   },
   dialog: { showOpenDialog: jest.fn() },
-  shell: { openPath: jest.fn() },
+  shell: { openPath: jest.fn(), openExternal: jest.fn() },
+  systemPreferences: { isTrustedAccessibilityClient: jest.fn(() => true) },
   screen: {
     getDisplayMatching: jest.fn(() => ({ workArea: { width: 1920, height: 1080, x: 0, y: 0 } })),
   },
-  globalShortcut: { register: jest.fn(), unregisterAll: jest.fn() },
+  globalShortcut: { register: jest.fn(() => true), unregister: jest.fn(), unregisterAll: jest.fn() },
   Tray: jest.fn(() => ({
     setToolTip: jest.fn(),
     setContextMenu: jest.fn(),
@@ -151,5 +152,29 @@ describe('themes:install and themes:load', () => {
     expect(result).toEqual({ success: false, error: 'Invalid theme: unsafe path in archive' });
     expect(fs.existsSync(path.join(mockRoot, 'userData', 'themes', 'outside.txt'))).toBe(false);
     expect(fs.existsSync(path.join(mockRoot, 'userData', 'themes', 'evil-theme'))).toBe(false);
+  });
+
+  test.each(['..zip', '...zip'])('refuses a zip named %s and leaves the themes folder alone', async (name) => {
+    const themesDir = path.join(mockRoot, 'userData', 'themes');
+    const before = fs.readdirSync(themesDir).sort();
+    const file = zipPath(name);
+    writeZip(file, [{ name: 'theme.json', data: '{"name":"Dots"}' }]);
+    choose(file);
+    const result = await ipcHandlers['themes:install']();
+    expect(result).toEqual({ success: false, error: 'Invalid theme: rename the file and try again' });
+    expect(fs.existsSync(themesDir)).toBe(true);
+    expect(fs.readdirSync(themesDir).sort()).toEqual(before);
+  });
+
+  test('rejects a zip that unpacks a symlink and removes the extracted folder', async () => {
+    const file = zipPath('linked-theme.zip');
+    writeZip(file, [
+      { name: 'theme.json', data: '{"name":"Linked"}' },
+      { name: 'theme.css', data: '/etc/hosts', symlink: true },
+    ]);
+    choose(file);
+    const result = await ipcHandlers['themes:install']();
+    expect(result).toEqual({ success: false, error: 'Invalid theme: it contains links to other files' });
+    expect(fs.existsSync(path.join(mockRoot, 'userData', 'themes', 'linked-theme'))).toBe(false);
   });
 });

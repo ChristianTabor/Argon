@@ -16,6 +16,9 @@ function assertPackagedApp(applicationPath, expectedVersion) {
   }
   const plistPath = path.join(applicationPath, 'Contents', 'Info.plist');
   const asarPath = path.join(applicationPath, 'Contents', 'Resources', 'app.asar');
+  if (!fs.existsSync(plistPath)) {
+    throw new Error(`Missing Info.plist: ${plistPath}`);
+  }
   const plist = fs.readFileSync(plistPath, 'utf8');
   if (!plist.includes('<string>com.tabor.argon</string>')) {
     throw new Error('Info.plist is missing CFBundleIdentifier com.tabor.argon');
@@ -32,6 +35,17 @@ function assertPackagedApp(applicationPath, expectedVersion) {
       throw new Error(`app.asar is missing ${required}`);
     }
   }
+}
+
+// Packager returns the output folder (dist-smoke/Argon-darwin-<arch>); the bundle is inside it
+function appBundlePath(outputDir) {
+  return path.join(outputDir, 'Argon.app');
+}
+
+// Same as release.yml: packaging breaks Electron's signature, so re-sign ad hoc, then verify
+function signAdHoc(applicationPath) {
+  execFileSync('codesign', ['--force', '--deep', '--sign', '-', applicationPath], { stdio: 'inherit' });
+  execFileSync('codesign', ['--verify', '--deep', '--strict', applicationPath], { stdio: 'inherit' });
 }
 
 async function packageSmoke() {
@@ -64,19 +78,28 @@ async function packageSmoke() {
   if (!appPaths || appPaths.length !== 1) {
     throw new Error(`Expected one packaged app, got ${JSON.stringify(appPaths)}`);
   }
-  assertPackagedApp(appPaths[0], version);
+  const applicationPath = appBundlePath(appPaths[0]);
+  assertPackagedApp(applicationPath, version);
+  signAdHoc(applicationPath);
+  console.log(`Packaged, checked and signed ${path.relative(root, applicationPath)}`);
 }
 
 if (require.main === module) {
-  // Node does not keep the process alive for a bare promise. Hold a timer until packager finishes.
-  const keepalive = setInterval(() => {}, 1000);
+  // If the event loop drains before packaging settles (seen with Node 26 while Electron's zip is
+  // extracted), fail instead of exiting 0 or waiting forever. CI uses Node 24.
+  let settled = false;
+  process.on('beforeExit', () => {
+    if (settled) return;
+    console.error('Packaging stopped before it finished. Run this with Node 24, as CI does.');
+    process.exit(1);
+  });
   packageSmoke().then(() => {
-    clearInterval(keepalive);
+    settled = true;
   }).catch((err) => {
-    clearInterval(keepalive);
+    settled = true;
     console.error(err && err.message ? err.message : err);
     process.exit(1);
   });
 }
 
-module.exports = { assertPackagedApp, asarHas };
+module.exports = { appBundlePath, assertPackagedApp, asarHas };

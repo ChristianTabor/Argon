@@ -2,7 +2,7 @@ const { execFileSync } = require('child_process');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { assertPackagedApp } = require('../scripts/package-smoke');
+const { appBundlePath, assertPackagedApp } = require('../scripts/package-smoke');
 
 const root = path.join(__dirname, '..');
 
@@ -51,5 +51,11 @@ describe('package smoke assertions', () => {
   test('fails when the bundle id does not match', () => {
     const app = makeApp(dir, { html: true, version: '1.2.3', bundleId: 'com.example.other' });
     expect(() => assertPackagedApp(app, '1.2.3')).toThrow(/CFBundleIdentifier/);
+  });
+
+  test('looks for the bundle inside the folder packager returns', () => {
+    const app = makeApp(dir, { html: true, version: '1.2.3', bundleId: 'com.tabor.argon' });
+    expect(appBundlePath(dir)).toBe(app);
+    expect(() => assertPackagedApp(dir, '1.2.3')).toThrow(/Missing Info\.plist/);
   });
 });

@@ -26,6 +26,12 @@ module.exports = [
         ...globals.browser,
         Visualizer: 'writable',
         ThemeManager: 'writable',
+        // favorite.js and playlist-layout.js load before app.js and define these
+        createFavoriteController: 'readonly',
+        isFavoriteKey: 'readonly',
+        PlaylistLayout: 'readonly',
+        // Those two also export through module.exports when it exists, for the tests
+        module: 'readonly',
       },
     },
   },
@@ -33,7 +39,7 @@ module.exports = [
     files: [
       'test/renderer-behavior.test.js',
       'test/theme-manager.test.js',
-      'test/visualizer.test.js',
+      'test/visualizer-dom.test.js',
       'test/helpers/canvas.js',
     ],
     languageOptions: {

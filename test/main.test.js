@@ -9,7 +9,7 @@ const mockWindow = {
   loadFile: jest.fn(),
   setAlwaysOnTop: jest.fn(),
   on: jest.fn(),
-  webContents: { send: jest.fn(), openDevTools: jest.fn() },
+  webContents: { send: jest.fn(), openDevTools: jest.fn(), on: jest.fn(), setWindowOpenHandler: jest.fn() },
   isVisible: jest.fn(() => true),
   isFocused: jest.fn(() => true),
   isDestroyed: jest.fn(() => false),
@@ -46,6 +46,7 @@ const mockNotification = jest.fn().mockImplementation(() => ({
 mockNotification.isSupported = jest.fn(() => true);
 
 const registeredShortcuts = {};
+const mockBusyShortcuts = new Set(); // accelerators another app holds, so register() fails
 
 jest.mock('electron', () => ({
   app: {
@@ -66,14 +67,20 @@ jest.mock('electron', () => ({
     }),
   },
   dialog: { showOpenDialog: jest.fn() },
-  shell: { openPath: jest.fn() },
+  shell: { openPath: jest.fn(), openExternal: jest.fn() },
+  systemPreferences: { isTrustedAccessibilityClient: jest.fn(() => true) },
   screen: {
     getDisplayMatching: jest.fn(() => ({
       workArea: { width: 1920, height: 1080, x: 0, y: 0 },
     })),
   },
   globalShortcut: {
-    register: jest.fn((key, cb) => { registeredShortcuts[key] = cb; }),
+    register: jest.fn((key, cb) => {
+      if (mockBusyShortcuts.has(key)) return false;
+      registeredShortcuts[key] = cb;
+      return true;
+    }),
+    unregister: jest.fn((key) => { delete registeredShortcuts[key]; }),
     unregisterAll: jest.fn(),
   },
   Tray: jest.fn().mockImplementation(() => mockTray),
@@ -97,7 +104,7 @@ jest.mock('child_process', () => ({
     if (args && args[1] && args[1].includes('lyrics of current track')) {
       cb(null, 'These are test lyrics\nLine two\n', '');
     } else if (args && args[1] && args[1].includes('player state')) {
-      cb(null, 'playing||Test Song||Test Artist||Test Album||240||120||75||false||off\n', '');
+      cb(null, 'playing||Test Song||Test Artist||Test Album||240||120||75||false||off||256||44100||E65C8AA0BE4E15B0||true\n', '');
     } else {
       cb(null, '', '');
     }
@@ -111,6 +118,7 @@ jest.mock('fs', () => ({
   writeFileSync: jest.fn(),
   readdirSync: jest.fn(() => []),
   statSync: jest.fn(() => ({ isDirectory: () => false })),
+  lstatSync: jest.fn(() => ({ isSymbolicLink: () => false, isDirectory: () => false })),
   rmSync: jest.fn(),
 }));
 
@@ -136,6 +144,7 @@ describe('IPC Handlers Registration', () => {
       'music:playpause', 'music:next', 'music:prev', 'music:setVolume',
       'music:setPosition', 'music:toggleShuffle', 'music:toggleRepeat',
       'music:getPlaylist', 'music:playTrackIndex', 'music:getLyrics',
+      'music:toggleFavorite',
     ];
     for (const handler of musicHandlers) {
       expect(ipcHandlers[handler]).toBeDefined();
@@ -175,6 +184,151 @@ describe('IPC Handlers Registration', () => {
   });
 });
 
+describe('Bit rate and sample rate', () => {
+  const { execFile } = require('child_process');
+  const stateWith = (tail) => `playing||Song||Artist||Album||240||120||75||false||off${tail}\n`;
+  const getStateWith = (tail) => {
+    execFile.mockImplementationOnce((cmd, args, opts, cb) => cb(null, stateWith(tail), ''));
+    return ipcHandlers['music:getState']();
+  };
+
+  test('music:getState returns the track bit rate and sample rate', async () => {
+    const state = await ipcHandlers['music:getState']();
+    expect(state.bitRate).toBe(256);
+    expect(state.sampleRate).toBe(44100);
+  });
+
+  test('state script appends the rates after the existing fields', async () => {
+    execFile.mockClear();
+    await ipcHandlers['music:getState']();
+    const script = execFile.mock.calls[0][1][1];
+    expect(script).toContain('bit rate of current track');
+    expect(script).toContain('sample rate of current track');
+    expect(script).toMatch(/repeatMode & sep & trackBitRate & sep & trackSampleRate\s/);
+  });
+
+  test('lossless and hi-res values pass through', async () => {
+    const state = await getStateWith('||1411||96000');
+    expect(state.bitRate).toBe(1411);
+    expect(state.sampleRate).toBe(96000);
+  });
+
+  test.each([
+    ['zero', '||0||0'],
+    ['missing value', '||missing value||missing value'],
+    ['empty', '||||'],
+    ['non-numeric', '||abc||xyz'],
+    ['absent (older output)', ''],
+  ])('unknown rates (%s) become null', async (_, tail) => {
+    const state = await getStateWith(tail);
+    expect(state.bitRate).toBeNull();
+    expect(state.sampleRate).toBeNull();
+    expect(state.track).toBe('Song');
+  });
+
+  test('an osascript failure gives null rates', async () => {
+    execFile.mockImplementationOnce((cmd, args, opts, cb) => cb(new Error('boom')));
+    const state = await ipcHandlers['music:getState']();
+    expect(state.state).toBe('stopped');
+    expect(state.bitRate).toBeNull();
+    expect(state.sampleRate).toBeNull();
+  });
+});
+
+describe('Favorite', () => {
+  const { execFile } = require('child_process');
+  const ID = 'E65C8AA0BE4E15B0';
+  const answerOnce = (out) => execFile.mockImplementationOnce((cmd, args, opts, cb) => cb(null, out + '\n', ''));
+
+  test('registers the toggle handler', () => {
+    expect(ipcHandlers['music:toggleFavorite']).toBeDefined();
+  });
+
+  test('music:getState returns the persistent ID and favorited flag', async () => {
+    const state = await ipcHandlers['music:getState']();
+    expect(state.persistentId).toBe(ID);
+    expect(state.favorited).toBe(true);
+  });
+
+  test('state script reads persistent ID and favorited last, each in a try', async () => {
+    execFile.mockClear();
+    await ipcHandlers['music:getState']();
+    const script = execFile.mock.calls[0][1][1];
+    expect(script).toMatch(/try\s+set trackFavorited to \(favorited of current track\) as string\s+end try/);
+    expect(script).toMatch(/trackSampleRate & sep & trackPersistentId & sep & trackFavorited\s/);
+  });
+
+  test.each([
+    ['false', '||1||1||ABCDEF0123456789||false', false],
+    ['missing ID', '||1||1||||false', false],
+  ])('state with %s reads favorited=false', async (_, tail) => {
+    execFile.mockImplementationOnce((cmd, args, opts, cb) => cb(null, `playing||S||A||B||240||1||75||false||off${tail}\n`, ''));
+    const state = await ipcHandlers['music:getState']();
+    expect(state.favorited).toBe(false);
+  });
+
+  test.each([
+    ['the text "missing value"', 'missing value'],
+    ['a short ID', 'ABC123'],
+    ['non-hex text', 'ZZZZZZZZZZZZZZZZ'],
+  ])('state with %s as the ID gives no persistentId', async (_, id) => {
+    execFile.mockImplementationOnce((cmd, args, opts, cb) => cb(null, `playing||S||A||B||240||1||75||false||off||1||1||${id}||true\n`, ''));
+    const state = await ipcHandlers['music:getState']();
+    expect(state.persistentId).toBe('');
+  });
+
+  test('state script coerces the persistent ID to text inside its try', async () => {
+    execFile.mockClear();
+    await ipcHandlers['music:getState']();
+    const script = execFile.mock.calls[0][1][1];
+    expect(script).toMatch(/try\s+set trackPersistentId to \(persistent ID of current track\) as string\s+end try/);
+  });
+
+  test('passes the ID through argv, never inside the script', async () => {
+    execFile.mockClear();
+    answerOnce('true');
+    await ipcHandlers['music:toggleFavorite'](null, ID);
+    const [cmd, args] = execFile.mock.calls[0];
+    expect(cmd).toBe('osascript');
+    expect(args.slice(2)).toEqual(['--', ID]);
+    expect(args[1]).not.toContain(ID);
+    expect(args[1]).toContain('on run argv');
+    expect(args[1]).toContain('persistent ID of t is not (item 1 of argv)');
+    expect(args[1]).toContain('set favorited of t to not (favorited of t)');
+  });
+
+  test('returns the new value, or stale', async () => {
+    answerOnce('true');
+    expect(await ipcHandlers['music:toggleFavorite'](null, ID)).toBe(true);
+    answerOnce('false');
+    expect(await ipcHandlers['music:toggleFavorite'](null, ID.toLowerCase())).toBe(false);
+    answerOnce('stale');
+    expect(await ipcHandlers['music:toggleFavorite'](null, ID)).toBe('stale');
+  });
+
+  test('rejects unexpected output and osascript failures', async () => {
+    answerOnce('banana');
+    await expect(ipcHandlers['music:toggleFavorite'](null, ID)).rejects.toThrow();
+    execFile.mockImplementationOnce((cmd, args, opts, cb) => cb(new Error('Music not running')));
+    await expect(ipcHandlers['music:toggleFavorite'](null, ID)).rejects.toThrow('Music not running');
+  });
+
+  test.each([
+    ['empty', ''],
+    ['too short', 'ABC123'],
+    ['too long', ID + '0'],
+    ['non-hex', 'ZZZZZZZZZZZZZZZZ'],
+    ['injection', '"; do shell script "x'],
+    ['number', 123],
+    ['undefined', undefined],
+    ['object', { id: ID }],
+  ])('rejects an invalid ID (%s) without running osascript', async (_, bad) => {
+    execFile.mockClear();
+    await expect(ipcHandlers['music:toggleFavorite'](null, bad)).rejects.toThrow('Invalid track ID');
+    expect(execFile).not.toHaveBeenCalled();
+  });
+});
+
 describe('Lyrics IPC', () => {
   test('music:getLyrics returns lyrics text', async () => {
     const result = await ipcHandlers['music:getLyrics']();
@@ -206,27 +360,167 @@ describe('Notifications IPC', () => {
 });
 
 describe('Global Shortcuts', () => {
-  test('registers media key shortcuts', () => {
-    const { globalShortcut } = require('electron');
-    expect(globalShortcut.register).toHaveBeenCalledWith('MediaPlayPause', expect.any(Function));
-    expect(globalShortcut.register).toHaveBeenCalledWith('MediaNextTrack', expect.any(Function));
-    expect(globalShortcut.register).toHaveBeenCalledWith('MediaPreviousTrack', expect.any(Function));
+  const MEDIA = ['MediaPlayPause', 'MediaNextTrack', 'MediaPreviousTrack'];
+  const GLOBAL = ['CommandOrControl+Shift+Up', 'CommandOrControl+Shift+Down', 'CommandOrControl+Shift+M'];
+
+  // Put both toggles back to a fresh install's state: media keys off, Cmd+Shift shortcuts on
+  afterEach(() => {
+    const { systemPreferences } = require('electron');
+    mockBusyShortcuts.clear();
+    systemPreferences.isTrustedAccessibilityClient.mockReturnValue(true);
+    ipcHandlers['prefs:save']({}, { mediaKeys: false, globalShortcuts: true });
   });
 
-  test('registers volume shortcuts', () => {
-    const { globalShortcut } = require('electron');
-    expect(globalShortcut.register).toHaveBeenCalledWith('CommandOrControl+Shift+Up', expect.any(Function));
-    expect(globalShortcut.register).toHaveBeenCalledWith('CommandOrControl+Shift+Down', expect.any(Function));
+  test('a fresh install registers the Cmd+Shift shortcuts and leaves the media keys alone', () => {
+    // Startup ran against no prefs.json
+    expect(Object.keys(registeredShortcuts).sort()).toEqual([...GLOBAL].sort());
+    expect(ipcHandlers['prefs:load']()).toEqual(expect.objectContaining({ mediaKeys: false, globalShortcuts: true }));
   });
 
-  test('registers mini mode shortcut', () => {
+  test('turning media keys on registers them without touching the other shortcuts', () => {
     const { globalShortcut } = require('electron');
-    expect(globalShortcut.register).toHaveBeenCalledWith('CommandOrControl+Shift+M', expect.any(Function));
+    globalShortcut.unregister.mockClear();
+    ipcHandlers['prefs:save']({}, { mediaKeys: true });
+    for (const key of MEDIA) expect(registeredShortcuts[key]).toEqual(expect.any(Function));
+    for (const key of GLOBAL) expect(registeredShortcuts[key]).toEqual(expect.any(Function));
+    expect(globalShortcut.unregister.mock.calls.map((c) => c[0]).sort()).toEqual([...MEDIA].sort());
+  });
+
+  test('turning media keys off unregisters them', () => {
+    ipcHandlers['prefs:save']({}, { mediaKeys: true });
+    ipcHandlers['prefs:save']({}, { mediaKeys: false });
+    for (const key of MEDIA) expect(registeredShortcuts[key]).toBeUndefined();
+    for (const key of GLOBAL) expect(registeredShortcuts[key]).toEqual(expect.any(Function));
+  });
+
+  test('turning global shortcuts off unregisters the Cmd+Shift accelerators only', () => {
+    ipcHandlers['prefs:save']({}, { mediaKeys: true });
+    ipcHandlers['prefs:save']({}, { globalShortcuts: false });
+    for (const key of GLOBAL) expect(registeredShortcuts[key]).toBeUndefined();
+    for (const key of MEDIA) expect(registeredShortcuts[key]).toEqual(expect.any(Function));
+  });
+
+  test('re-applying a setting unregisters before it registers again', () => {
+    const { globalShortcut } = require('electron');
+    ipcHandlers['prefs:save']({}, { globalShortcuts: true });
+    const key = 'CommandOrControl+Shift+M';
+    const unregistered = globalShortcut.unregister.mock.invocationCallOrder[
+      globalShortcut.unregister.mock.calls.map((c) => c[0]).lastIndexOf(key)];
+    const registered = globalShortcut.register.mock.invocationCallOrder[
+      globalShortcut.register.mock.calls.map((c) => c[0]).lastIndexOf(key)];
+    expect(unregistered).toBeLessThan(registered);
+  });
+
+  test('the media keys run the Music commands', () => {
+    const { execFile } = require('child_process');
+    ipcHandlers['prefs:save']({}, { mediaKeys: true });
+    execFile.mockClear();
+    registeredShortcuts.MediaNextTrack();
+    expect(execFile.mock.calls[0][1][1]).toContain('next track');
   });
 
   test('mini mode shortcut sends IPC to renderer', () => {
     registeredShortcuts['CommandOrControl+Shift+M']();
     expect(mockWindow.webContents.send).toHaveBeenCalledWith('toggle-mini-mode');
+  });
+
+  test('prefs:save only takes booleans for the shortcut prefs', () => {
+    const fs = require('fs');
+    fs.writeFileSync.mockClear();
+    ipcHandlers['prefs:save']({}, { mediaKeys: 'yes', globalShortcuts: 0 });
+    expect(JSON.parse(fs.writeFileSync.mock.calls[0][1])).toEqual(
+      expect.objectContaining({ mediaKeys: false, globalShortcuts: true }));
+    expect(registeredShortcuts.MediaPlayPause).toBeUndefined();
+  });
+
+  test('the shortcut prefs are saved', () => {
+    const fs = require('fs');
+    fs.writeFileSync.mockClear();
+    ipcHandlers['prefs:save']({}, { mediaKeys: true, globalShortcuts: false });
+    expect(JSON.parse(fs.writeFileSync.mock.calls[0][1])).toEqual(
+      expect.objectContaining({ mediaKeys: true, globalShortcuts: false }));
+  });
+
+  describe('tray menu', () => {
+    const item = (label) => lastTrayMenu().find((i) => i.label === label);
+
+    test('has a checkbox for each group that follows the prefs', () => {
+      expect(item('Capture Media Keys')).toEqual(expect.objectContaining({ type: 'checkbox', checked: false }));
+      expect(item('Global Shortcuts (Cmd+Shift)')).toEqual(expect.objectContaining({ type: 'checkbox', checked: true }));
+    });
+
+    test('Capture Media Keys registers the keys, saves the pref and updates the checkbox', () => {
+      const fs = require('fs');
+      fs.writeFileSync.mockClear();
+      item('Capture Media Keys').click();
+      expect(registeredShortcuts.MediaPlayPause).toEqual(expect.any(Function));
+      expect(JSON.parse(fs.writeFileSync.mock.calls[0][1]).mediaKeys).toBe(true);
+      expect(item('Capture Media Keys').checked).toBe(true);
+
+      item('Capture Media Keys').click();
+      expect(registeredShortcuts.MediaPlayPause).toBeUndefined();
+      expect(JSON.parse(fs.writeFileSync.mock.calls[1][1]).mediaKeys).toBe(false);
+      expect(item('Capture Media Keys').checked).toBe(false);
+    });
+
+    test('Global Shortcuts unregisters the Cmd+Shift accelerators and saves the pref', () => {
+      const fs = require('fs');
+      fs.writeFileSync.mockClear();
+      item('Global Shortcuts (Cmd+Shift)').click();
+      expect(registeredShortcuts['CommandOrControl+Shift+M']).toBeUndefined();
+      expect(JSON.parse(fs.writeFileSync.mock.calls[0][1]).globalShortcuts).toBe(false);
+      expect(item('Global Shortcuts (Cmd+Shift)').checked).toBe(false);
+    });
+
+    test('turning media keys on asks macOS for Accessibility access; the pref route does not', () => {
+      const { systemPreferences } = require('electron');
+      systemPreferences.isTrustedAccessibilityClient.mockClear();
+      ipcHandlers['prefs:save']({}, { mediaKeys: true });
+      expect(systemPreferences.isTrustedAccessibilityClient).toHaveBeenLastCalledWith(false);
+      item('Capture Media Keys').click(); // off
+      item('Capture Media Keys').click(); // on
+      expect(systemPreferences.isTrustedAccessibilityClient).toHaveBeenLastCalledWith(true);
+    });
+
+    test('shows a link to Accessibility settings when media keys are on but not trusted', () => {
+      const { systemPreferences, shell } = require('electron');
+      systemPreferences.isTrustedAccessibilityClient.mockReturnValue(false);
+      ipcHandlers['prefs:save']({}, { mediaKeys: true });
+      const warning = item('Media Keys Need Accessibility Permission…');
+      expect(warning).toBeDefined();
+      warning.click();
+      expect(shell.openExternal).toHaveBeenCalledWith(expect.stringContaining('Privacy_Accessibility'));
+
+      ipcHandlers['prefs:save']({}, { mediaKeys: false });
+      expect(item('Media Keys Need Accessibility Permission…')).toBeUndefined();
+    });
+
+    test('media keys refused for missing Accessibility permission are not reported as in use', () => {
+      const { systemPreferences } = require('electron');
+      systemPreferences.isTrustedAccessibilityClient.mockReturnValue(false);
+      // Electron's register() returns false for media keys when the app isn't trusted
+      ['MediaPlayPause', 'MediaNextTrack', 'MediaPreviousTrack'].forEach((key) => mockBusyShortcuts.add(key));
+      ipcHandlers['prefs:save']({}, { mediaKeys: true });
+      expect(item('Media Keys Need Accessibility Permission…')).toBeDefined();
+      expect(lastTrayMenu().some((i) => String(i.label).startsWith('In use by another app'))).toBe(false);
+    });
+
+    test('shows no Accessibility warning while media keys are off', () => {
+      const { systemPreferences } = require('electron');
+      systemPreferences.isTrustedAccessibilityClient.mockReturnValue(false);
+      ipcHandlers['prefs:save']({}, { globalShortcuts: true });
+      expect(item('Media Keys Need Accessibility Permission…')).toBeUndefined();
+    });
+
+    test('lists shortcuts another app already holds, and clears them when they are turned off', () => {
+      mockBusyShortcuts.add('CommandOrControl+Shift+M');
+      ipcHandlers['prefs:save']({}, { globalShortcuts: true });
+      expect(registeredShortcuts['CommandOrControl+Shift+M']).toBeUndefined();
+      expect(item('In use by another app: Cmd+Shift+M')).toEqual(expect.objectContaining({ enabled: false }));
+
+      ipcHandlers['prefs:save']({}, { globalShortcuts: false });
+      expect(lastTrayMenu().some((i) => String(i.label).startsWith('In use by another app'))).toBe(false);
+    });
   });
 });
 
@@ -256,11 +550,80 @@ describe('Tray', () => {
 });
 
 describe('Window Management', () => {
+  test('window cannot zoom or go fullscreen, so a titlebar double-click only toggles windowshade', () => {
+    const { BrowserWindow } = require('electron');
+    const opts = BrowserWindow.mock.calls[0][0];
+    expect(opts.maximizable).toBe(false);
+    expect(opts.fullscreenable).toBe(false);
+    expect(opts.resizable).toBe(true);
+  });
+
   test('window:applyConstraints sets min/max/size', async () => {
     await ipcHandlers['window:applyConstraints']({}, 200, 56, 600, 56, 320, 56);
     expect(mockWindow.setMinimumSize).toHaveBeenCalled();
     expect(mockWindow.setMaximumSize).toHaveBeenCalled();
     expect(mockWindow.setSize).toHaveBeenCalled();
+  });
+
+  describe('applyConstraints against the display work area', () => {
+    const { screen } = require('electron');
+    const workArea = { x: 0, y: 25, width: 1440, height: 800 };
+
+    beforeEach(() => {
+      screen.getDisplayMatching.mockReturnValue({ workArea });
+      for (const fn of [mockWindow.setSize, mockWindow.setPosition, mockWindow.setMinimumSize, mockWindow.setMaximumSize]) fn.mockClear();
+    });
+
+    afterAll(() => {
+      screen.getDisplayMatching.mockReturnValue({ workArea: { width: 1920, height: 1080, x: 0, y: 0 } });
+      mockWindow.getBounds.mockReturnValue({ x: 0, y: 0, width: 300, height: 500 });
+    });
+
+    test('a window that fits is left alone', async () => {
+      mockWindow.getBounds.mockReturnValue({ x: 100, y: 100, width: 320, height: 520 });
+      await ipcHandlers['window:applyConstraints']({}, 275, 520, 500, 1200, 320, 740);
+      expect(mockWindow.setMinimumSize).toHaveBeenLastCalledWith(275, 520);
+      expect(mockWindow.setSize).toHaveBeenCalledWith(320, 740, false);
+      expect(mockWindow.setPosition).not.toHaveBeenCalled();
+    });
+
+    test('min and target height are capped to the work area height', async () => {
+      mockWindow.getBounds.mockReturnValue({ x: 100, y: 25, width: 320, height: 520 });
+      await ipcHandlers['window:applyConstraints']({}, 280, 1100, 500, 1200, 320, 1000);
+      expect(mockWindow.setMinimumSize).toHaveBeenLastCalledWith(280, 800);
+      expect(mockWindow.setSize).toHaveBeenCalledWith(320, 800, false);
+      expect(mockWindow.setMaximumSize).toHaveBeenCalledWith(500, 1200);
+    });
+
+    test('unsnapped, the window moves up so its bottom stays inside the work area', async () => {
+      // 520px tall at y=500 grows to 740: bottom 1240 is past 825
+      mockWindow.getBounds.mockReturnValue({ x: 100, y: 500, width: 320, height: 740 });
+      await ipcHandlers['window:applyConstraints']({}, 275, 740, 500, 1200, 320, 740);
+      expect(mockWindow.setPosition).toHaveBeenCalledWith(100, 825 - 740);
+    });
+
+    test('unsnapped, it never moves above the top of the work area', async () => {
+      mockWindow.getBounds.mockReturnValue({ x: 100, y: 300, width: 320, height: 800 });
+      await ipcHandlers['window:applyConstraints']({}, 275, 1100, 500, 1200, 320, 1000);
+      expect(mockWindow.setPosition).toHaveBeenCalledWith(100, 25);
+    });
+
+    test('a window that already fits is not moved', async () => {
+      mockWindow.getBounds.mockReturnValue({ x: 100, y: 25, width: 320, height: 700 });
+      await ipcHandlers['window:applyConstraints']({}, 275, 700, 500, 1200, 320, 700);
+      expect(mockWindow.setPosition).not.toHaveBeenCalled();
+    });
+
+    test('snapped, an oversized window shrinks to the work area and sits inside it', async () => {
+      await ipcHandlers['window:snapBottomRight']();
+      mockWindow.setPosition.mockClear();
+      mockWindow.getSize.mockReturnValue([320, 800]);
+      await ipcHandlers['window:applyConstraints']({}, 280, 1100, 500, 1200, 320, 1000);
+      expect(mockWindow.setSize).toHaveBeenCalledWith(320, 800, false);
+      // bottom-right corner of the work area, top at the work area's top
+      expect(mockWindow.setPosition).toHaveBeenCalledWith(1440 - 320, 25 + 800 - 800);
+      mockWindow.getSize.mockReturnValue([300, 500]);
+    });
   });
 
   test('window:toggleOnTop toggles always on top', async () => {
@@ -367,6 +730,65 @@ describe('Security — Input Validation', () => {
   });
 });
 
+describe('Security — window and theme install', () => {
+  const THEMES = '/tmp/argon-test-userData/themes';
+  const pickFile = (filePath) => require('electron').dialog.showOpenDialog
+    .mockResolvedValueOnce({ canceled: false, filePaths: [filePath] });
+
+  afterEach(() => {
+    const fs = require('fs');
+    fs.existsSync.mockImplementation(() => false);
+    fs.readdirSync.mockImplementation(() => []);
+    fs.lstatSync.mockImplementation(() => ({ isSymbolicLink: () => false, isDirectory: () => false }));
+    fs.readFileSync.mockImplementation(() => '{}');
+  });
+
+  test('the window refuses navigation and new windows', () => {
+    const onNavigate = mockWindow.webContents.on.mock.calls.find((c) => c[0] === 'will-navigate')[1];
+    const event = { preventDefault: jest.fn() };
+    onNavigate(event, 'https://example.com');
+    expect(event.preventDefault).toHaveBeenCalled();
+    const openHandler = mockWindow.webContents.setWindowOpenHandler.mock.calls[0][0];
+    expect(openHandler({ url: 'https://example.com' })).toEqual({ action: 'deny' });
+  });
+
+  test.each(['..zip', '...zip'])('themes:install refuses a zip named %s without unzipping or deleting anything', async (name) => {
+    const fs = require('fs');
+    const { execFile } = require('child_process');
+    execFile.mockClear();
+    fs.rmSync.mockClear();
+    pickFile(`/Users/someone/Downloads/${name}`);
+    const result = await ipcHandlers['themes:install']();
+    expect(result).toEqual({ success: false, error: expect.stringContaining('rename the file') });
+    expect(execFile).not.toHaveBeenCalled();
+    expect(fs.rmSync).not.toHaveBeenCalled();
+  });
+
+  test('themes:install removes a theme that contains a symlink, and only that theme', async () => {
+    const fs = require('fs');
+    fs.rmSync.mockClear();
+    fs.readdirSync.mockImplementation((dir) => (dir === `${THEMES}/Evil` ? ['theme.css'] : []));
+    fs.lstatSync.mockImplementation(() => ({ isSymbolicLink: () => true, isDirectory: () => false }));
+    pickFile('/Users/someone/Downloads/Evil.zip');
+    const result = await ipcHandlers['themes:install']();
+    expect(result).toEqual({ success: false, error: expect.stringContaining('links to other files') });
+    expect(fs.rmSync).toHaveBeenCalledTimes(1);
+    expect(fs.rmSync).toHaveBeenCalledWith(`${THEMES}/Evil`, { recursive: true });
+  });
+
+  test('themes:install still installs a normal theme', async () => {
+    const fs = require('fs');
+    fs.rmSync.mockClear();
+    fs.existsSync.mockImplementation((p) => p === `${THEMES}/Nice/theme.json`);
+    fs.readdirSync.mockImplementation((dir) => (dir === `${THEMES}/Nice` ? ['theme.css', 'theme.json'] : []));
+    fs.readFileSync.mockImplementation((p) => (p === `${THEMES}/Nice/theme.json` ? '{"name":"Nice"}' : '{}'));
+    pickFile('/Users/someone/Downloads/Nice.zip');
+    const result = await ipcHandlers['themes:install']();
+    expect(result).toEqual({ success: true, themeId: 'Nice', name: 'Nice' });
+    expect(fs.rmSync).not.toHaveBeenCalled();
+  });
+});
+
 describe('App Lifecycle', () => {
   test('registers will-quit handler', () => {
     const { app } = require('electron');
@@ -401,6 +823,27 @@ describe('Prefs', () => {
     expect(JSON.parse(fs.writeFileSync.mock.calls[0][1]).hideDockIcon).toBe(false);
   });
 
+  test('prefs:save keeps playlistVisible only when it is a boolean', () => {
+    const fs = require('fs');
+    fs.writeFileSync.mockClear();
+    ipcHandlers['prefs:save']({}, { playlistVisible: true });
+    expect(JSON.parse(fs.writeFileSync.mock.calls[0][1]).playlistVisible).toBe(true);
+    fs.writeFileSync.mockClear();
+    ipcHandlers['prefs:save']({}, { playlistVisible: 'yes' });
+    expect(JSON.parse(fs.writeFileSync.mock.calls[0][1])).not.toHaveProperty('playlistVisible');
+  });
+
+  test('prefs:save keeps timeMode and drops a non-string one', () => {
+    const fs = require('fs');
+    fs.writeFileSync.mockClear();
+    ipcHandlers['prefs:save']({}, { timeMode: 'remaining' });
+    expect(JSON.parse(fs.writeFileSync.mock.calls[0][1]).timeMode).toBe('remaining');
+
+    fs.writeFileSync.mockClear();
+    ipcHandlers['prefs:save']({}, { timeMode: 42 });
+    expect(JSON.parse(fs.writeFileSync.mock.calls[0][1]).timeMode).toBeUndefined();
+  });
+
   test('prefs:save merges into saved prefs instead of clobbering main-process keys', () => {
     const fs = require('fs');
     fs.existsSync.mockImplementation((p) => String(p).endsWith('prefs.json'));
@@ -410,7 +853,7 @@ describe('Prefs', () => {
       // The renderer only sends the keys it knows about
       ipcHandlers['prefs:save']({}, { theme: 'classic-winamp', miniMode: true, unknownKey: 'dropped' });
       const saved = JSON.parse(fs.writeFileSync.mock.calls[0][1]);
-      expect(saved).toEqual({ theme: 'classic-winamp', miniMode: true, hideDockIcon: true });
+      expect(saved).toEqual({ theme: 'classic-winamp', miniMode: true, hideDockIcon: true, mediaKeys: true });
     } finally {
       fs.existsSync.mockImplementation(() => false);
       fs.readFileSync.mockImplementation(() => '{}');
@@ -729,5 +1172,59 @@ describe('AppleScript IPC', () => {
     } finally {
       app.getPath.mockImplementation((name) => `/tmp/argon-test-${name}`);
     }
+  });
+});
+
+describe('Shortcut prefs at startup', () => {
+  // Loads a second copy of main.js against a saved prefs.json. The electron/fs mocks are shared
+  // with the first copy, so restore its handlers, shortcuts and fs mocks afterwards.
+  const startWith = async (saved) => {
+    const fs = require('fs');
+    fs.existsSync.mockImplementation((p) => String(p).endsWith('prefs.json'));
+    fs.readFileSync.mockImplementation(() => JSON.stringify(saved));
+    for (const key of Object.keys(registeredShortcuts)) delete registeredShortcuts[key];
+    jest.isolateModules(() => require('../main.js'));
+    await new Promise(setImmediate); // let app.whenReady().then(...) run
+    return Object.keys(registeredShortcuts).sort();
+  };
+
+  const run = async (saved, check) => {
+    const fs = require('fs');
+    const savedHandlers = { ...ipcHandlers };
+    const savedShortcuts = { ...registeredShortcuts };
+    try {
+      check(await startWith(saved));
+    } finally {
+      fs.existsSync.mockImplementation(() => false);
+      fs.readFileSync.mockImplementation(() => '{}');
+      for (const key of Object.keys(registeredShortcuts)) delete registeredShortcuts[key];
+      Object.assign(ipcHandlers, savedHandlers);
+      Object.assign(registeredShortcuts, savedShortcuts);
+    }
+  };
+
+  const MEDIA = ['MediaNextTrack', 'MediaPlayPause', 'MediaPreviousTrack'];
+  const GLOBAL = ['CommandOrControl+Shift+Down', 'CommandOrControl+Shift+M', 'CommandOrControl+Shift+Up'];
+
+  test('an existing prefs.json without mediaKeys keeps the media keys on', async () => {
+    await run({ theme: 'sakura' }, (keys) => expect(keys).toEqual([...MEDIA, ...GLOBAL].sort()));
+  });
+
+  test('saved mediaKeys: false leaves the media keys alone', async () => {
+    await run({ mediaKeys: false }, (keys) => expect(keys).toEqual(GLOBAL));
+  });
+
+  test('saved globalShortcuts: false registers no Cmd+Shift shortcuts', async () => {
+    await run({ mediaKeys: true, globalShortcuts: false }, (keys) => expect(keys).toEqual(MEDIA));
+  });
+
+  test('both off registers nothing', async () => {
+    await run({ mediaKeys: false, globalShortcuts: false }, (keys) => expect(keys).toEqual([]));
+  });
+
+  test('will-quit still unregisters everything', () => {
+    const { app, globalShortcut } = require('electron');
+    app.on.mock.calls.find((c) => c[0] === 'will-quit')[1]();
+    expect(globalShortcut.unregisterAll).toHaveBeenCalled();
   });
 });

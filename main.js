@@ -1,9 +1,9 @@
-const { app, BrowserWindow, ipcMain, dialog, shell, screen, globalShortcut, Tray, Menu, nativeImage, Notification } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell, screen, globalShortcut, systemPreferences, Tray, Menu, nativeImage, Notification } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { execFile } = require('child_process');
 const scripts = require('./lib/apple-music');
-const { isUnsafeZipEntry, listZipEntries } = require('./lib/theme-zip');
+const { isSafeThemeName, isUnsafeZipEntry, containsSymlink, listZipEntries } = require('./lib/theme-zip');
 
 // Paths
 const THEMES_DIR = path.join(__dirname, 'src', 'themes');
@@ -18,6 +18,9 @@ let prevAlwaysOnTop = false;
 let isSnapped = false;
 let lastProgrammaticMove = 0;
 let dockIconHidden = false;
+let mediaKeysEnabled = false;
+let globalShortcutsEnabled = true;
+let shortcutProblems = { untrusted: false, failed: {} };
 let trayTrack = '';
 let trayArtist = '';
 
@@ -33,6 +36,15 @@ function snapToBottomRight() {
   isSnapped = true;
 }
 
+// A taller window keeps its top-left, so move it up if its bottom now hangs off the work area
+function keepBottomOnScreen(workArea) {
+  const { x, y, height } = mainWindow.getBounds();
+  const bottom = workArea.y + workArea.height;
+  if (y + height <= bottom) return;
+  lastProgrammaticMove = Date.now();
+  mainWindow.setPosition(x, Math.max(workArea.y, bottom - height));
+}
+
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 300,
@@ -46,6 +58,10 @@ function createWindow() {
     titleBarStyle: 'hidden',
     trafficLightPosition: { x: -100, y: -100 },
     resizable: true,
+    // Frameless drag areas can pick up the OS titlebar double-click action (zoom);
+    // double-click is Argon's windowshade toggle, so keep the window from zooming
+    maximizable: false,
+    fullscreenable: false,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -56,6 +72,11 @@ function createWindow() {
 
   mainWindow.loadFile(path.join(__dirname, 'src', 'index.html'));
   mainWindow.setAlwaysOnTop(false);
+
+  // Keep the window on Argon's own page. A link or file dropped on it would otherwise load
+  // there, and the page would get the preload API.
+  mainWindow.webContents.on('will-navigate', (e) => e.preventDefault());
+  mainWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
 
   // Detect manual drags to clear snap state
   mainWindow.on('move', () => {
@@ -89,10 +110,18 @@ function ensureUserThemesDir() {
 function loadPrefs() {
   try {
     if (fs.existsSync(PREFS_PATH)) {
-      return JSON.parse(fs.readFileSync(PREFS_PATH, 'utf-8'));
+      const saved = JSON.parse(fs.readFileSync(PREFS_PATH, 'utf-8'));
+      // Existing installs captured the media keys before this was a choice, so keep it on for them
+      if (saved && typeof saved === 'object' && !Array.isArray(saved) && typeof saved.mediaKeys !== 'boolean') {
+        saved.mediaKeys = true;
+      }
+      return saved;
     }
   } catch (e) { /* ignore */ }
-  return { theme: 'classic-winamp', visualizer: 'bars', alwaysOnTop: false, hideDockIcon: false };
+  return {
+    theme: 'classic-winamp', visualizer: 'bars', alwaysOnTop: false, hideDockIcon: false,
+    mediaKeys: false, globalShortcuts: true,
+  };
 }
 
 // Save preferences
@@ -107,8 +136,9 @@ function updatePrefs(changes) {
   savePrefs({ ...base, ...changes });
 }
 
-// AppleScript execution helper. Extra strings are argv, after `--`.
-function runAppleScript(script, args) {
+// AppleScript execution helper
+// Extra args reach the script's `on run argv` (after `--`), so values are never interpolated into the source
+function runAppleScript(script, args = []) {
   return new Promise((resolve, reject) => {
     execFile('osascript', scripts.osascriptArgs(script, args), { timeout: 5000 }, (err, stdout) => {
       if (err) reject(err);
@@ -126,6 +156,15 @@ ipcMain.handle('music:getState', async () => {
   } catch (e) {
     return scripts.stoppedState();
   }
+});
+
+// Toggles `favorited` on the current track if it's still the one the user saw (see lib/apple-music.js)
+ipcMain.handle('music:toggleFavorite', async (_, persistentId) => {
+  if (!scripts.isPersistentId(persistentId)) {
+    throw new Error('Invalid track ID');
+  }
+  const result = await runAppleScript(scripts.toggleFavoriteScript(), [persistentId]);
+  return scripts.parseToggleFavorite(result);
 });
 
 ipcMain.handle('music:getArtwork', async () => {
@@ -245,9 +284,7 @@ ipcMain.handle('themes:list', () => {
 });
 
 ipcMain.handle('themes:load', (_, themeId) => {
-  if (typeof themeId !== 'string' || /[\/\\]|\.\./.test(themeId) || themeId.length === 0) {
-    return null;
-  }
+  if (!isSafeThemeName(themeId)) return null;
 
   const locations = [
     path.join(THEMES_DIR, themeId),
@@ -287,12 +324,15 @@ ipcMain.handle('themes:install', async () => {
   ensureUserThemesDir();
 
   try {
+    const themeName = path.basename(filePath, path.extname(filePath));
+    if (!isSafeThemeName(themeName)) {
+      return { success: false, error: 'Invalid theme: rename the file and try again' };
+    }
+
     const zipEntries = await listZipEntries(filePath);
     if (zipEntries.some(isUnsafeZipEntry)) {
       return { success: false, error: 'Invalid theme: unsafe path in archive' };
     }
-
-    const themeName = path.basename(filePath, path.extname(filePath));
     const destDir = path.join(USER_THEMES_DIR, themeName);
     if (!fs.existsSync(destDir)) fs.mkdirSync(destDir, { recursive: true });
 
@@ -302,6 +342,12 @@ ipcMain.handle('themes:install', async () => {
         else resolve();
       });
     });
+
+    // Before anything follows them: the nested-folder step below would read through a link
+    if (containsSymlink(destDir)) {
+      fs.rmSync(destDir, { recursive: true });
+      return { success: false, error: 'Invalid theme: it contains links to other files' };
+    }
 
     // Verify theme.json exists
     if (!fs.existsSync(path.join(destDir, 'theme.json'))) {
@@ -361,15 +407,19 @@ ipcMain.handle('window:resize', (_, w, h) => {
 });
 
 ipcMain.handle('window:applyConstraints', (_, minW, minH, maxW, maxH, targetW, targetH) => {
+  // Nothing may be taller than the work area of the display the window is on
+  const workArea = screen.getDisplayMatching(mainWindow.getBounds()).workArea;
+  const fit = (h) => Math.min(Math.round(h), workArea.height);
   // Reset min to absolute minimum first to avoid conflicts during transition
   mainWindow.setMinimumSize(200, 200);
   if (maxW && maxH) mainWindow.setMaximumSize(Math.round(maxW), Math.round(maxH));
-  if (minW && minH) mainWindow.setMinimumSize(Math.round(minW), Math.round(minH));
+  if (minW && minH) mainWindow.setMinimumSize(Math.round(minW), fit(minH));
   if (targetW && targetH) {
     lastProgrammaticMove = Date.now();
-    mainWindow.setSize(Math.round(targetW), Math.round(targetH), false);
+    mainWindow.setSize(Math.round(targetW), fit(targetH), false);
     // Re-snap to corner if window was snapped before the resize
     if (isSnapped) snapToBottomRight();
+    else keepBottomOnScreen(workArea);
   }
 });
 
@@ -394,7 +444,9 @@ ipcMain.handle('prefs:save', (_, prefs) => {
   const allowed = {
     theme: 'string', visualizer: 'string', alwaysOnTop: 'boolean',
     transparency: 'number', darkText: 'boolean', eqBands: 'object',
-    eqPreset: 'string', miniMode: 'boolean', hideDockIcon: 'boolean',
+    eqPreset: 'string', miniMode: 'boolean', hideDockIcon: 'boolean', timeMode: 'string',
+    mediaKeys: 'boolean', globalShortcuts: 'boolean',
+    playlistVisible: 'boolean',
   };
   const sanitized = {};
   for (const [key, type] of Object.entries(allowed)) {
@@ -404,6 +456,9 @@ ipcMain.handle('prefs:save', (_, prefs) => {
   }
   // Merge, so keys the renderer doesn't send (hideDockIcon, owned by the tray menu) survive
   updatePrefs(sanitized);
+  // Shortcut changes apply right away
+  if ('mediaKeys' in sanitized) setShortcutGroup('media', sanitized.mediaKeys);
+  if ('globalShortcuts' in sanitized) setShortcutGroup('global', sanitized.globalShortcuts);
 });
 
 // ─── Tray ───────────────────────────────────────────────────────────────────
@@ -515,9 +570,9 @@ function updateTrayMenu(track, artist, windowInFront = mainWindowInFront()) {
     { label: trackLabel, enabled: false },
     ...(artistLabel ? [{ label: artistLabel, enabled: false }] : []),
     { type: 'separator' },
-    { label: 'Play/Pause', click: () => runAppleScript('tell application "Music" to playpause') },
-    { label: 'Next Track', click: () => runAppleScript('tell application "Music" to next track') },
-    { label: 'Previous Track', click: () => runAppleScript('tell application "Music" to previous track') },
+    { label: 'Play/Pause', click: () => runAppleScript(scripts.playpause()) },
+    { label: 'Next Track', click: () => runAppleScript(scripts.next()) },
+    { label: 'Previous Track', click: () => runAppleScript(scripts.previous()) },
     { type: 'separator' },
     // Bound to the label, so the item does what it says even if focus moves while the menu is open
     { label: windowInFront ? 'Hide Window' : 'Show Window', click: windowInFront ? hideMainWindow : showMainWindow },
@@ -531,6 +586,25 @@ function updateTrayMenu(track, artist, windowInFront = mainWindowInFront()) {
         updateTrayMenu(trayTrack, trayArtist);
       },
     }] : []),
+    {
+      label: 'Capture Media Keys',
+      type: 'checkbox',
+      checked: mediaKeysEnabled,
+      click: () => {
+        setShortcutGroup('media', !mediaKeysEnabled, true);
+        updatePrefs({ mediaKeys: mediaKeysEnabled });
+      },
+    },
+    {
+      label: 'Global Shortcuts (Cmd+Shift)',
+      type: 'checkbox',
+      checked: globalShortcutsEnabled,
+      click: () => {
+        setShortcutGroup('global', !globalShortcutsEnabled);
+        updatePrefs({ globalShortcuts: globalShortcutsEnabled });
+      },
+    },
+    ...shortcutProblemItems(),
     { type: 'separator' },
     { label: 'Quit Argon', click: () => { tray = null; app.quit(); } },
   ]);
@@ -538,27 +612,64 @@ function updateTrayMenu(track, artist, windowInFront = mainWindowInFront()) {
 
 // ─── Global Shortcuts ───────────────────────────────────────────────────────
 
-function registerGlobalShortcuts() {
-  globalShortcut.register('MediaPlayPause', () => {
-    runAppleScript('tell application "Music" to playpause');
-  });
-  globalShortcut.register('MediaNextTrack', () => {
-    runAppleScript('tell application "Music" to next track');
-  });
-  globalShortcut.register('MediaPreviousTrack', () => {
-    runAppleScript('tell application "Music" to previous track');
-  });
-  globalShortcut.register('CommandOrControl+Shift+Up', () => {
-    runAppleScript('tell application "Music" to set sound volume to (sound volume + 5)');
-  });
-  globalShortcut.register('CommandOrControl+Shift+Down', () => {
-    runAppleScript('tell application "Music" to set sound volume to (sound volume - 5)');
-  });
-  globalShortcut.register('CommandOrControl+Shift+M', () => {
-    // Closing the window destroys it, so bring it back instead of throwing
-    if (!mainWindow || mainWindow.isDestroyed()) createWindow();
-    else mainWindow.webContents.send('toggle-mini-mode');
-  });
+const runMusic = (script) => () => runAppleScript(script);
+
+const SHORTCUT_GROUPS = {
+  media: {
+    MediaPlayPause: runMusic(scripts.playpause()),
+    MediaNextTrack: runMusic(scripts.next()),
+    MediaPreviousTrack: runMusic(scripts.previous()),
+  },
+  global: {
+    'CommandOrControl+Shift+Up': runMusic(scripts.nudgeVolume(5)),
+    'CommandOrControl+Shift+Down': runMusic(scripts.nudgeVolume(-5)),
+    'CommandOrControl+Shift+M': () => {
+      // Closing the window destroys it, so bring it back instead of throwing
+      if (!mainWindow || mainWindow.isDestroyed()) createWindow();
+      else mainWindow.webContents.send('toggle-mini-mode');
+    },
+  },
+};
+
+const ACCESSIBILITY_SETTINGS_URL = 'x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility';
+
+// Turn one group of shortcuts on or off: unregister its accelerators, then register them if enabled.
+// `prompt` lets macOS ask for Accessibility access, so it's only set when the user just turned the keys on.
+function setShortcutGroup(group, enabled, prompt = false) {
+  if (group === 'media') mediaKeysEnabled = enabled;
+  else globalShortcutsEnabled = enabled;
+
+  // Media keys only register once Argon is a trusted accessibility client. Electron refuses them
+  // otherwise, and that refusal isn't another app holding the key, so don't report it as one.
+  const untrusted = group === 'media' && enabled && !systemPreferences.isTrustedAccessibilityClient(prompt);
+  if (group === 'media') shortcutProblems.untrusted = untrusted;
+
+  const accelerators = SHORTCUT_GROUPS[group];
+  for (const accelerator of Object.keys(accelerators)) {
+    globalShortcut.unregister(accelerator);
+    delete shortcutProblems.failed[accelerator];
+    if (enabled && !globalShortcut.register(accelerator, accelerators[accelerator]) && !untrusted) {
+      shortcutProblems.failed[accelerator] = true;
+    }
+  }
+  updateTrayMenu(trayTrack, trayArtist);
+}
+
+// Tray menu lines for shortcuts that are on but not working
+function shortcutProblemItems() {
+  const items = [];
+  if (shortcutProblems.untrusted) {
+    items.push({
+      label: 'Media Keys Need Accessibility Permission…',
+      click: () => shell.openExternal(ACCESSIBILITY_SETTINGS_URL),
+    });
+  }
+  const inUse = Object.keys(shortcutProblems.failed)
+    .map((accelerator) => accelerator.replace('CommandOrControl', 'Cmd'));
+  if (inUse.length) {
+    items.push({ label: `In use by another app: ${inUse.join(', ')}`, enabled: false });
+  }
+  return items;
 }
 
 // ─── App Lifecycle ──────────────────────────────────────────────────────────
@@ -568,7 +679,9 @@ app.whenReady().then(() => {
   if (loadPrefs().hideDockIcon === true) setDockIconHidden(true);
   createWindow();
   createTray();
-  registerGlobalShortcuts();
+  const prefs = loadPrefs();
+  setShortcutGroup('media', prefs.mediaKeys === true);
+  setShortcutGroup('global', prefs.globalShortcuts !== false);
 });
 
 app.on('will-quit', () => {

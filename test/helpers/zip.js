@@ -1,6 +1,8 @@
 const fs = require('fs');
 const zlib = require('zlib');
 
+// entries: { name, data, symlink? }. A symlink entry stores its target as data and is marked as a
+// Unix symlink, which unzip recreates as a link.
 function writeZip(zipPath, entries) {
   const locals = [];
   const centrals = [];
@@ -27,7 +29,7 @@ function writeZip(zipPath, entries) {
 
     const central = Buffer.alloc(46);
     central.writeUInt32LE(0x02014b50, 0);
-    central.writeUInt16LE(20, 4);
+    central.writeUInt16LE(entry.symlink ? (3 << 8) | 20 : 20, 4); // made by Unix for symlinks
     central.writeUInt16LE(20, 6);
     central.writeUInt16LE(0, 8);
     central.writeUInt16LE(0, 10);
@@ -41,7 +43,7 @@ function writeZip(zipPath, entries) {
     central.writeUInt16LE(0, 32);
     central.writeUInt16LE(0, 34);
     central.writeUInt16LE(0, 36);
-    central.writeUInt32LE(0, 38);
+    central.writeUInt32LE(entry.symlink ? (0o120777 << 16) >>> 0 : 0, 38);
     central.writeUInt32LE(offset, 42);
     centrals.push(Buffer.concat([central, name]));
     offset += localRecord.length;

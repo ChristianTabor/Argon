@@ -151,6 +151,7 @@ Show or hide any section:
   --show-visualizer: flex;   /* flex | none */
   --show-display: block;     /* block | none */
   --show-display-top: flex;  /* flex | none (KBPS/KHZ/STEREO row) */
+  --show-favorite: flex;     /* flex | none (heart button in the KBPS/KHZ/STEREO row) */
   --show-album: block;       /* block | none */
   --show-artwork: flex;      /* flex | none */
   --show-seek: flex;         /* flex | none */
@@ -158,6 +159,14 @@ Show or hide any section:
   --show-controls-secondary: flex; /* flex | none (shuffle/repeat) */
   --show-volume: flex;       /* flex | none */
   --show-bottom: flex;       /* flex | none */
+}
+```
+
+`--show-playlist` (default `none`) is the theme's default for the playlist viewer. The **PL** button in the bottom bar (or the `P` key) overrides it for the user, in any theme. The choice is saved and kept when the theme changes. A theme that hides the playlist gets up to 220px more window height when the user turns it on (never above `--window-max-height` or the screen), and gets its old height back when the user turns it off. To remove the button from a theme:
+
+```css
+:root {
+  --show-playlist-toggle: none;  /* flex | none (PL button) */
 }
 ```
 

@@ -92,7 +92,7 @@ describe('ThemeManager', () => {
     ]);
   });
 
-  test('applyTheme reads window constraints from the theme CSS and dispatches themechange', async () => {
+  test('applyTheme writes the theme CSS, saves, and dispatches themechange; app.js does the resize', async () => {
     const api = createApi([]);
     window.api = api;
     api.themes.load = jest.fn(async () => ({
@@ -109,7 +109,8 @@ describe('ThemeManager', () => {
 
     expect(ok).toBe(true);
     expect(document.getElementById('theme-styles').textContent).toContain('--base-width: 320');
-    expect(api.window.applyConstraints).toHaveBeenCalledWith(280, 400, 900, 1000, 320, 400);
+    // The themechange listener in app.js resizes the window (see renderer-behavior.test.js)
+    expect(api.window.applyConstraints).not.toHaveBeenCalled();
     expect(api.prefs.save).toHaveBeenCalledWith(expect.objectContaining({ theme: 'wide' }));
     expect(event).toHaveBeenCalledWith(expect.objectContaining({
       detail: { themeId: 'wide', meta: { name: 'Wide' }, adaptive: false },

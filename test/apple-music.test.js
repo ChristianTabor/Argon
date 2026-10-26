@@ -38,6 +38,29 @@ describe('AppleScript builders', () => {
     expect(scripts.lyrics()).toContain('lyrics of current track');
   });
 
+  test('nudgeVolume builds the Cmd+Shift volume step and rejects non-integers', () => {
+    expect(scripts.nudgeVolume(5)).toBe('tell application "Music" to set sound volume to (sound volume + 5)');
+    expect(scripts.nudgeVolume(-5)).toBe('tell application "Music" to set sound volume to (sound volume - 5)');
+    for (const bad of [1.5, NaN, '5', null]) {
+      expect(scripts.nudgeVolume(bad)).toBeNull();
+    }
+  });
+
+  test('isPersistentId accepts 16 hex digits only', () => {
+    expect(scripts.isPersistentId('E65C8AA0BE4E15B0')).toBe(true);
+    expect(scripts.isPersistentId('e65c8aa0be4e15b0')).toBe(true);
+    for (const bad of ['', 'ABC123', 'E65C8AA0BE4E15B00', 'ZZZZZZZZZZZZZZZZ', '"; do shell script "x', 123, null]) {
+      expect(scripts.isPersistentId(bad)).toBe(false);
+    }
+  });
+
+  test('the toggle-favorite script takes the track ID from argv', () => {
+    const script = scripts.toggleFavoriteScript();
+    expect(script).toContain('on run argv');
+    expect(script).toContain('persistent ID of t is not (item 1 of argv)');
+    expect(scripts.osascriptArgs(script, ['E65C8AA0BE4E15B0'])).toEqual(['-e', script, '--', 'E65C8AA0BE4E15B0']);
+  });
+
   test('string arguments stay in argv, including quotes, slashes, ampersands, newlines, and end tell', () => {
     const nasty = [
       'quote " here',
@@ -72,6 +95,10 @@ describe('Music output parsers', () => {
       '75',
       'true',
       'one',
+      '256',
+      '44100',
+      'E65C8AA0BE4E15B0',
+      'true',
     ].join(scripts.FIELD);
     expect(scripts.parsePlayerState(raw)).toEqual({
       state: 'playing',
@@ -83,10 +110,14 @@ describe('Music output parsers', () => {
       volume: 75,
       shuffle: true,
       repeat: 'one',
+      bitRate: 256,
+      sampleRate: 44100,
+      persistentId: 'E65C8AA0BE4E15B0',
+      favorited: true,
     });
   });
 
-  test('parsePlayerState still reads the legacy || record', () => {
+  test('parsePlayerState still reads the legacy || record, with unknown rates and no ID', () => {
     expect(scripts.parsePlayerState('playing||Test Song||Test Artist||Test Album||240||120||75||false||off')).toEqual({
       state: 'playing',
       track: 'Test Song',
@@ -97,7 +128,23 @@ describe('Music output parsers', () => {
       volume: 75,
       shuffle: false,
       repeat: 'off',
+      bitRate: null,
+      sampleRate: null,
+      persistentId: '',
+      favorited: false,
     });
+  });
+
+  test('stoppedState has every field parsePlayerState returns', () => {
+    expect(Object.keys(scripts.stoppedState()).sort())
+      .toEqual(Object.keys(scripts.parsePlayerState('')).sort());
+  });
+
+  test('parseToggleFavorite returns the new value or stale, and throws on anything else', () => {
+    expect(scripts.parseToggleFavorite('true')).toBe(true);
+    expect(scripts.parseToggleFavorite('false')).toBe(false);
+    expect(scripts.parseToggleFavorite('stale')).toBe('stale');
+    expect(() => scripts.parseToggleFavorite('banana')).toThrow('Unexpected response from Music');
   });
 
   test('parsePlaylist keeps tabs and || inside track names and accepts CR records', () => {

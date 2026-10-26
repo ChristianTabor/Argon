@@ -33,6 +33,12 @@ describe('HTML Structure', () => {
     expect(html).toContain('title="Windowshade (Cmd+Shift+M)"');
   });
 
+  test('contains PL button in the bottom bar, next to EQ', () => {
+    expect(html).toMatch(/id="btn-playlist"[^>]*title="Playlist \(P\)"/);
+    expect(html.indexOf('id="btn-playlist"')).toBeGreaterThan(html.indexOf('class="bottom-bar"'));
+    expect(html.indexOf('id="btn-playlist"')).toBeLessThan(html.indexOf('id="btn-eq"'));
+  });
+
   test('contains lyrics panel', () => {
     expect(html).toContain('id="lyrics-panel"');
     expect(html).toContain('id="lyrics-content"');
@@ -93,6 +99,23 @@ describe('CSS Styles', () => {
     expect(css).toContain('.lyrics-content');
     expect(css).toContain('.lyrics-placeholder');
     expect(css).toContain('.lyrics-panel-close');
+  });
+
+  test('PL button overrides the theme playlist default and mini mode still wins', () => {
+    expect(css).toContain('.player.playlist-forced-on .playlist-container { display: flex !important; }');
+    expect(css).toContain('.player.playlist-forced-off .playlist-container { display: none !important; }');
+    // Equal specificity and both !important, so the later rule wins: mini mode must come last
+    expect(css.indexOf('.player.playlist-forced-off')).toBeLessThan(css.indexOf('.player.mini-mode .playlist-container'));
+  });
+
+  test('forcing the playlist on gives the added height to the playlist, and a wide artwork cannot crush it', () => {
+    expect(css).toMatch(/\.player\.playlist-forced-on \.artwork-container\s*\{[^}]*flex-grow:\s*0;[^}]*flex-shrink:\s*1;[^}]*min-height:\s*0;/);
+    expect(css).toMatch(/\.player\.playlist-forced-on \.playlist-container\s*\{[^}]*min-height:\s*180px;[^}]*flex-shrink:\s*0;/);
+  });
+
+  test('themes can hide the PL button with --show-playlist-toggle', () => {
+    expect(css).toContain('--show-playlist-toggle: flex;');
+    expect(css).toMatch(/#btn-playlist\s*\{\s*display:\s*var\(--show-playlist-toggle\)/);
   });
 
   test('contains EQ panel styles', () => {
@@ -351,6 +374,252 @@ describe('App.js Logic', () => {
     });
   });
 
+  describe('Marquee Click', () => {
+    // Run the real functions from app.js against a stand-in for the marquee element
+    function makeMarquee(classes) {
+      const set = new Set(classes);
+      return {
+        classList: {
+          contains: (c) => set.has(c),
+          add: (...cs) => cs.forEach((c) => set.add(c)),
+          remove: (...cs) => cs.forEach((c) => set.delete(c)),
+          toggle(c) { if (set.has(c)) { set.delete(c); return false; } set.add(c); return true; },
+        },
+        getAnimations: () => [],
+        has: (c) => set.has(c),
+      };
+    }
+    let load;
+
+    beforeAll(() => {
+      const grab = (re) => appCode.match(re)[0];
+      const src = [
+        grab(/function toggleMarqueePause[\s\S]*?\n {2}}\n/),
+        grab(/function reverseMarquee[\s\S]*?\n {2}}\n/),
+        'return { toggleMarqueePause, reverseMarquee };',
+      ].join('\n');
+      load = (marqueeText) => new Function('marqueeText', src)(marqueeText);
+    });
+
+    test('click pauses a scrolling title and a second click resumes it', () => {
+      const m = makeMarquee(['scrolling']);
+      const { toggleMarqueePause } = load(m);
+      toggleMarqueePause();
+      expect(m.has('paused')).toBe(true);
+      toggleMarqueePause();
+      expect(m.has('paused')).toBe(false);
+    });
+
+    test('a title that fits does not react to clicks', () => {
+      const m = makeMarquee([]);
+      const { toggleMarqueePause, reverseMarquee } = load(m);
+      toggleMarqueePause();
+      reverseMarquee();
+      expect(m.has('paused')).toBe(false);
+      expect(m.has('reversed')).toBe(false);
+    });
+
+    test('Shift+click reverses a scrolling title and flips it back', () => {
+      const m = makeMarquee(['scrolling']);
+      const { reverseMarquee } = load(m);
+      reverseMarquee();
+      expect(m.has('reversed')).toBe(true);
+      reverseMarquee();
+      expect(m.has('reversed')).toBe(false);
+    });
+
+    test('reversing keeps the text where it is', () => {
+      const m = makeMarquee(['scrolling']);
+      const anim = { effect: { getComputedTiming: () => ({ progress: 0.25, duration: 10000 }) }, currentTime: 0 };
+      m.getAnimations = () => [anim];
+      const { reverseMarquee } = load(m);
+      reverseMarquee();
+      expect(anim.currentTime).toBe(7500);
+      anim.effect.getComputedTiming = () => ({ progress: 0.25, duration: 10000 });
+      reverseMarquee();
+      expect(anim.currentTime).toBe(2500);
+    });
+
+    test('when the class change replaces the animation, the clock is set on the new one', () => {
+      const m = makeMarquee(['scrolling']);
+      const before = { effect: { getComputedTiming: () => ({ progress: 0.25, duration: 10000 }) }, currentTime: 0 };
+      const after = { effect: {}, currentTime: 0 };
+      let calls = 0;
+      m.getAnimations = () => (calls++ === 0 ? [before] : [after]);
+      const { reverseMarquee } = load(m);
+      reverseMarquee();
+      expect(after.currentTime).toBe(7500);
+      expect(before.currentTime).toBe(0);
+    });
+
+    test('a progress that is not a number leaves the clock alone', () => {
+      const m = makeMarquee(['scrolling']);
+      const anim = { effect: { getComputedTiming: () => ({ progress: null, duration: 10000 }) }, currentTime: 1234 };
+      m.getAnimations = () => [anim];
+      const { reverseMarquee } = load(m);
+      reverseMarquee();
+      expect(anim.currentTime).toBe(1234);
+      expect(m.has('reversed')).toBe(true);
+    });
+
+    test('no animation after the class change is not an error', () => {
+      const m = makeMarquee(['scrolling']);
+      const anim = { effect: { getComputedTiming: () => ({ progress: 0.5, duration: 10000 }) }, currentTime: 0 };
+      let calls = 0;
+      m.getAnimations = () => (calls++ === 0 ? [anim] : []);
+      const { reverseMarquee } = load(m);
+      expect(() => reverseMarquee()).not.toThrow();
+    });
+
+    test('a new title resets paused and reversed, and starts paused for reduced motion', () => {
+      expect(appCode).toMatch(/function setMarquee[\s\S]*?classList\.remove\('scrolling', 'paused', 'reversed'\)/);
+      expect(appCode).toMatch(/prefers-reduced-motion: reduce[\s\S]*?classList\.add\('paused'\)/);
+    });
+
+    test('clicks on the marquee box are wired up', () => {
+      expect(appCode).toMatch(/marqueeText\.parentElement\.addEventListener\('click'[\s\S]*?e\.shiftKey/);
+    });
+
+    test('CSS pauses the animation and reverses its direction', () => {
+      const css = fs.readFileSync(path.join(__dirname, '..', 'src', 'styles', 'base.css'), 'utf-8');
+      expect(css).toMatch(/\.marquee-content\.scrolling\.paused\s*\{[^}]*animation-play-state:\s*paused/);
+      expect(css).toMatch(/\.marquee-content\.scrolling\.reversed\s*\{\s*animation-direction:\s*reverse/);
+    });
+  });
+
+  describe('Playlist Toggle', () => {
+    const { resolvePlaylistVisible, playlistWindowHeights } = require('../src/js/playlist-layout.js');
+    const base = { minH: 520, maxH: 1200, themeDefault: false, visible: true, restoreH: null, keepSize: true };
+
+    test('theme default applies when there is no override, an override beats it', () => {
+      expect(resolvePlaylistVisible(true, undefined)).toBe(true);
+      expect(resolvePlaylistVisible(false, undefined)).toBe(false);
+      expect(resolvePlaylistVisible(false, true)).toBe(true);
+      expect(resolvePlaylistVisible(true, false)).toBe(false);
+    });
+
+    test('opening grows a short window to min height + 220', () => {
+      const r = playlistWindowHeights({ ...base, curH: 520 });
+      expect(r).toEqual({ minHeight: 740, targetHeight: 740, restoreH: 520 });
+    });
+
+    test('opening never shrinks a window the user made taller', () => {
+      const r = playlistWindowHeights({ ...base, curH: 1000 });
+      expect(r.targetHeight).toBe(1000);
+      expect(r.minHeight).toBe(740);
+      expect(r.restoreH).toBe(1000);
+    });
+
+    test('opening is capped at the theme max height', () => {
+      expect(playlistWindowHeights({ ...base, maxH: 600, curH: 520 }).targetHeight).toBe(600);
+      expect(playlistWindowHeights({ ...base, minH: 500, maxH: 500, curH: 500 })).toMatchObject({ minHeight: 500, targetHeight: 500 });
+    });
+
+    test('closing restores the height from before it opened', () => {
+      const r = playlistWindowHeights({ ...base, visible: false, curH: 740, restoreH: 1000 });
+      expect(r).toEqual({ minHeight: 520, targetHeight: 1000, restoreH: null });
+    });
+
+    test('a theme that shows the playlist, or a hidden playlist with nothing saved, keeps the current height', () => {
+      expect(playlistWindowHeights({ ...base, themeDefault: true, visible: true, curH: 900 }))
+        .toEqual({ minHeight: 520, targetHeight: 900, restoreH: null });
+      expect(playlistWindowHeights({ ...base, visible: false, curH: 900 }).targetHeight).toBe(900);
+    });
+
+    test('after a theme load the window starts from the theme base height', () => {
+      const open = playlistWindowHeights({ ...base, keepSize: false, curH: 1000, restoreH: 1000 });
+      expect(open).toEqual({ minHeight: 740, targetHeight: 740, restoreH: 520 });
+      expect(playlistWindowHeights({ ...base, keepSize: false, visible: false, curH: 1000 }).targetHeight).toBe(520);
+    });
+
+    test('a restored height is held inside the theme limits', () => {
+      expect(playlistWindowHeights({ ...base, visible: false, curH: 740, restoreH: 300 }).targetHeight).toBe(520);
+      expect(playlistWindowHeights({ ...base, visible: false, curH: 740, restoreH: 5000 }).targetHeight).toBe(1200);
+    });
+
+    describe('in the app', () => {
+      const { loadApp } = require('./helpers/appHarness');
+      const press = (app, init = {}) => app.keydown({ code: 'KeyP', ...init });
+
+      test('stretch to 1000, PL opens at 1000, PL again goes back to 1000', async () => {
+        const app = await loadApp({ innerHeight: 1000 });
+        app.runFrames();
+        app.win.innerHeight = 1000; // the user stretched the window after startup
+        app.listeners.byId['#btn-playlist'].click();
+        expect(app.lastResize()).toMatchObject({ minH: 740, targetH: 1000 });
+        expect(app.player.classList.contains('playlist-forced-on')).toBe(true);
+        app.listeners.byId['#btn-playlist'].click();
+        expect(app.lastResize()).toMatchObject({ minH: 520, targetH: 1000 });
+        expect(app.player.classList.contains('playlist-forced-on')).toBe(false);
+      });
+
+      test('a short window grows by the playlist, and closing shrinks it back', async () => {
+        const app = await loadApp();
+        app.runFrames();
+        press(app);
+        expect(app.lastResize()).toMatchObject({ minH: 740, targetH: 740 });
+        press(app);
+        expect(app.lastResize()).toMatchObject({ minH: 520, targetH: 520 });
+      });
+
+      test('a theme change drops the saved height', async () => {
+        const app = await loadApp();
+        app.runFrames();
+        app.win.innerHeight = 900;
+        press(app); // opens at 900, saves 900
+        app.listeners.window.themechange.forEach((fn) => fn({ detail: { themeId: 'other' } }));
+        app.runFrames(); // theme load resets to the base height + playlist
+        expect(app.lastResize()).toMatchObject({ targetH: 740 });
+        press(app);
+        expect(app.lastResize()).toMatchObject({ targetH: 520 }); // not the 900 from the old theme
+      });
+
+      test('holding P toggles once and saves once', async () => {
+        const app = await loadApp();
+        app.runFrames();
+        press(app);
+        press(app, { repeat: true });
+        press(app, { repeat: true });
+        press(app, { repeat: true });
+        expect(app.player.classList.contains('playlist-forced-on')).toBe(true);
+        expect(app.calls.prefsSave).toEqual([{ playlistVisible: true }]);
+        press(app); // a fresh press toggles again
+        expect(app.calls.prefsSave).toEqual([{ playlistVisible: true }, { playlistVisible: false }]);
+      });
+
+      test('the toggle saves only playlistVisible, never a snapshot of the other prefs', async () => {
+        const app = await loadApp({ prefs: { theme: 'x', transparency: 40 } });
+        app.runFrames();
+        press(app);
+        expect(app.calls.prefsSave).toEqual([{ playlistVisible: true }]);
+      });
+
+      test('P is ignored in mini mode', async () => {
+        const app = await loadApp({ prefs: { miniMode: true } });
+        app.runFrames();
+        const before = app.calls.prefsSave.length;
+        press(app);
+        expect(app.calls.prefsSave.length).toBe(before);
+      });
+
+      test('a saved override is applied before the first resize', async () => {
+        const app = await loadApp({ prefs: { playlistVisible: true } });
+        expect(app.calls.applyConstraints).toEqual([]); // nothing resized before the pref is known
+        app.runFrames();
+        expect(app.calls.applyConstraints).toHaveLength(1);
+        expect(app.lastResize()).toMatchObject({ minH: 740, targetH: 740 });
+        expect(app.player.classList.contains('playlist-forced-on')).toBe(true);
+      });
+
+      test('with no saved override the first resize is the theme size', async () => {
+        const app = await loadApp();
+        app.runFrames();
+        expect(app.calls.applyConstraints).toHaveLength(1);
+        expect(app.lastResize()).toMatchObject({ targetW: 320, targetH: 520 });
+      });
+    });
+  });
+
   describe('Panel Mutual Exclusion', () => {
     test('lyrics toggle closes EQ panel', () => {
       expect(appCode).toMatch(/toggleLyrics[\s\S]*?closeEq\(\)/);
@@ -367,6 +636,215 @@ describe('App.js Logic', () => {
     test('EQ toggle closes theme panel', () => {
       expect(appCode).toMatch(/toggleEq[\s\S]*?themeManager\.close\(\)/);
     });
+  });
+});
+
+describe('Bit rate and sample rate display', () => {
+  let html, appCode, css, formatBitRate, formatSampleRate;
+
+  beforeAll(() => {
+    html = fs.readFileSync(path.join(__dirname, '..', 'src', 'index.html'), 'utf-8');
+    appCode = fs.readFileSync(path.join(__dirname, '..', 'src', 'js', 'app.js'), 'utf-8');
+    css = fs.readFileSync(path.join(__dirname, '..', 'src', 'styles', 'base.css'), 'utf-8');
+    const grab = (name) => appCode.match(new RegExp(`function ${name}\\([\\s\\S]*?\\n  }\\n`))[0];
+    ({ formatBitRate, formatSampleRate } = new Function(
+      `${grab('formatBitRate')}${grab('formatSampleRate')} return { formatBitRate, formatSampleRate };`
+    )());
+  });
+
+  test('markup no longer hardcodes 256 and 44', () => {
+    expect(html).toMatch(/id="display-kbps">--</);
+    expect(html).toMatch(/id="display-khz">--</);
+  });
+
+  test('STEREO is static and not lit', () => {
+    expect(html).toContain('<span class="stereo-indicator">STEREO</span>');
+  });
+
+  test('values reserve width so 4-digit numbers do not shift the layout', () => {
+    expect(css).toMatch(/#display-kbps\s*{\s*min-width: 4ch/);
+  });
+
+  test('updateUI writes the rates from state', () => {
+    expect(appCode).toMatch(/function updateUI[\s\S]*?formatBitRate\(newState\.bitRate\)[\s\S]*?formatSampleRate\(newState\.sampleRate\)/);
+  });
+
+  test('formatBitRate rounds, and shows -- for unknown values', () => {
+    expect(formatBitRate(256)).toBe('256');
+    expect(formatBitRate(1411.2)).toBe('1411');
+    expect(formatBitRate(99999)).toBe('9999');
+    for (const bad of [0, null, undefined, NaN, -5, 'x']) expect(formatBitRate(bad)).toBe('--');
+  });
+
+  test('formatSampleRate shows kHz without trailing zeros', () => {
+    expect(formatSampleRate(44100)).toBe('44.1');
+    expect(formatSampleRate(48000)).toBe('48');
+    expect(formatSampleRate(96000)).toBe('96');
+    expect(formatSampleRate(192000)).toBe('192');
+    for (const bad of [0, null, undefined, NaN, -5, 'x']) expect(formatSampleRate(bad)).toBe('--');
+  });
+});
+
+describe('Favorite button', () => {
+  let html, appCode, css, themeGuide;
+
+  beforeAll(() => {
+    const read = (...p) => fs.readFileSync(path.join(__dirname, '..', ...p), 'utf-8');
+    html = read('src', 'index.html');
+    appCode = read('src', 'js', 'app.js');
+    css = read('src', 'styles', 'base.css');
+    themeGuide = read('THEME_GUIDE.md');
+  });
+
+  test('has an accessible name and pressed state, and starts hidden', () => {
+    expect(html).toMatch(/<button[^>]*id="btn-favorite"[^>]*aria-label="Favorite"[^>]*aria-pressed="false"[^>]*hidden/);
+  });
+
+  test('themes can hide it with --show-favorite', () => {
+    expect(css).toMatch(/--show-favorite:\s*flex/);
+    expect(css).toMatch(/\.favorite-btn\s*{[^}]*display:\s*var\(--show-favorite\)/);
+    expect(css).toMatch(/\.favorite-btn\[hidden\]\s*{\s*display:\s*none/);
+    expect(themeGuide).toContain('--show-favorite');
+  });
+
+  test('favorite.js loads before app.js', () => {
+    expect(html.indexOf('src="js/favorite.js"')).toBeGreaterThan(-1);
+    expect(html.indexOf('src="js/favorite.js"')).toBeLessThan(html.indexOf('src="js/app.js"'));
+  });
+
+  test('the heart is hidden while stopped or without a track ID', () => {
+    expect(appCode).toContain('btnFavorite.hidden = !state.persistentId');
+  });
+});
+
+describe('Favorite controller', () => {
+  const { createFavoriteController, isFavoriteKey } = require('../src/js/favorite.js');
+
+  // A toggle call the test settles by hand, so the track can change while it is in flight
+  function setup() {
+    const painted = [];
+    const calls = [];
+    const fav = createFavoriteController({
+      toggle: (id) => new Promise((resolve, reject) => calls.push({ id, resolve, reject })),
+      paint: (v) => painted.push(v),
+    });
+    return { fav, painted, calls };
+  }
+
+  test('click updates the heart at once and keeps the result', async () => {
+    const { fav, painted, calls } = setup();
+    fav.update('A', false);
+    const done = fav.click();
+    expect(fav.favorited).toBe(true);
+    expect(calls.map((c) => c.id)).toEqual(['A']);
+    calls[0].resolve(true);
+    await done;
+    expect(fav.favorited).toBe(true);
+    expect(painted).toEqual([false, true, true]);
+  });
+
+  test('does nothing without a track ID', async () => {
+    const { fav, calls } = setup();
+    fav.update('', false);
+    await fav.click();
+    expect(calls).toHaveLength(0);
+  });
+
+  test('a second click during the call is ignored', async () => {
+    const { fav, calls } = setup();
+    fav.update('A', false);
+    const done = fav.click();
+    await fav.click();
+    expect(calls).toHaveLength(1);
+    calls[0].resolve(true);
+    await done;
+  });
+
+  test('rolls back when the call fails', async () => {
+    const { fav, calls } = setup();
+    fav.update('A', true);
+    const done = fav.click();
+    expect(fav.favorited).toBe(false);
+    calls[0].reject(new Error('Music not running'));
+    await done;
+    expect(fav.favorited).toBe(true);
+  });
+
+  test('rolls back when Music says the track is stale', async () => {
+    const { fav, calls } = setup();
+    fav.update('A', false);
+    const done = fav.click();
+    calls[0].resolve('stale');
+    await done;
+    expect(fav.favorited).toBe(false);
+  });
+
+  test('the poll does not overwrite the heart while a toggle is in flight on the same track', async () => {
+    const { fav, calls } = setup();
+    fav.update('A', false);
+    const done = fav.click();
+    fav.update('A', false);
+    expect(fav.favorited).toBe(true);
+    calls[0].resolve(true);
+    await done;
+    expect(fav.favorited).toBe(true);
+  });
+
+  test('a track change during the call shows the new track right away', async () => {
+    const { fav, calls } = setup();
+    fav.update('A', false);
+    const done = fav.click();
+    fav.update('B', true);
+    expect(fav.id).toBe('B');
+    expect(fav.favorited).toBe(true);
+    calls[0].resolve(true);
+    await done;
+    expect(fav.favorited).toBe(true);
+  });
+
+  test('a stale result from the old track does not repaint the new one', async () => {
+    const { fav, calls } = setup();
+    fav.update('A', false);
+    const done = fav.click();
+    fav.update('B', true);
+    calls[0].resolve('stale');
+    await done;
+    expect(fav.favorited).toBe(true);
+    // The next click sends B's ID and flips B from its real value
+    const next = fav.click();
+    expect(calls[1].id).toBe('B');
+    expect(fav.favorited).toBe(false);
+    calls[1].resolve(false);
+    await next;
+  });
+
+  test('a failure from the old track does not repaint the new one', async () => {
+    const { fav, calls } = setup();
+    fav.update('A', false);
+    const done = fav.click();
+    fav.update('B', true);
+    calls[0].reject(new Error('boom'));
+    await done;
+    expect(fav.favorited).toBe(true);
+  });
+
+  test('after the call the poll drives the heart again', async () => {
+    const { fav, calls } = setup();
+    fav.update('A', false);
+    const done = fav.click();
+    calls[0].resolve(true);
+    await done;
+    fav.update('A', false);
+    expect(fav.favorited).toBe(false);
+  });
+
+  test('F toggles, but not on key repeat or with Cmd/Ctrl/Alt held', () => {
+    expect(isFavoriteKey({ code: 'KeyF' })).toBe(true);
+    expect(isFavoriteKey({ code: 'KeyF', repeat: true })).toBe(false);
+    expect(isFavoriteKey({ code: 'KeyF', metaKey: true })).toBe(false);
+    expect(isFavoriteKey({ code: 'KeyF', ctrlKey: true })).toBe(false);
+    expect(isFavoriteKey({ code: 'KeyF', altKey: true })).toBe(false);
+    expect(isFavoriteKey({ code: 'KeyG' })).toBe(false);
   });
 });
 
@@ -431,6 +909,171 @@ describe('Windowshade Bar', () => {
     expect(html).toContain('title="Exit Windowshade"');
     expect(html).not.toContain('Mini Mode');
   });
+
+  describe('double-click toggle', () => {
+    test('titlebar label and windowshade label have ids to listen on', () => {
+      expect(html).toMatch(/<span class="titlebar-text" id="titlebar-text"/);
+      expect(html).toMatch(/<span class="mini-title" id="mini-title"/);
+    });
+
+    test('labels are no-drag islands, since drag regions swallow DOM mouse events', () => {
+      expect(css).toMatch(/\.titlebar-text\s*\{[^}]*-webkit-app-region:\s*no-drag/);
+      expect(css).toMatch(/\.mini-title\s*\{[^}]*-webkit-app-region:\s*no-drag/);
+      expect(css).not.toMatch(/\.mini-title\s*\{[^}]*pointer-events:\s*none/);
+    });
+
+    test('the drag regions still cover the bars', () => {
+      expect(css).toMatch(/\.titlebar-drag\s*\{[^}]*-webkit-app-region:\s*drag/);
+      expect(css).toMatch(/\.mini-drag\s*\{[^}]*-webkit-app-region:\s*drag/);
+    });
+
+    test('double-clicking the titlebar label enters windowshade, the strip label exits', () => {
+      expect(appCode).toMatch(/\$\('#titlebar-text'\)\.addEventListener\('dblclick', \(\) => \{ if \(!state\.miniMode\) toggleMiniMode\(\); \}\)/);
+      expect(appCode).toMatch(/\$\('#mini-title'\)\.addEventListener\('dblclick', \(\) => \{ if \(state\.miniMode\) toggleMiniMode\(\); \}\)/);
+    });
+  });
+});
+
+describe('Time Display Toggle', () => {
+  let html, css, appCode, fns;
+
+  beforeAll(() => {
+    html = fs.readFileSync(path.join(__dirname, '..', 'src', 'index.html'), 'utf-8');
+    css = fs.readFileSync(path.join(__dirname, '..', 'src', 'styles', 'base.css'), 'utf-8');
+    appCode = fs.readFileSync(path.join(__dirname, '..', 'src', 'js', 'app.js'), 'utf-8');
+    // Pull the pure helpers out of app.js so the real code is what gets tested
+    const names = ['formatTime', 'formatTimeReadout', 'nextTimeMode', 'parseTimeMode', 'parkSeekWithoutDuration'];
+    const grab = (name) => appCode.match(new RegExp(`  function ${name}\\([^)]*\\) \\{\\n[\\s\\S]*?\\n  \\}\\n`))[0];
+    fns = new Function(`${names.map(grab).join('\n')}\nreturn { ${names.join(', ')} };`)();
+  });
+
+  test('elapsed shows position, remaining shows a negative countdown', () => {
+    expect(fns.formatTimeReadout(83, 204, 'elapsed')).toBe('1:23');
+    expect(fns.formatTimeReadout(83, 204, 'remaining')).toBe('-2:01');
+  });
+
+  test('elapsed plus remaining adds up to the total shown', () => {
+    // 200.37s track: total reads 3:20, so at 1.2s remaining must be 3:19, not 3:20
+    expect(fns.formatTime(200.37)).toBe('3:20');
+    expect(fns.formatTimeReadout(1.2, 200.37, 'remaining')).toBe('-3:19');
+  });
+
+  test('long tracks show hours in both modes', () => {
+    expect(fns.formatTime(3723)).toBe('1:02:03');
+    expect(fns.formatTimeReadout(3723, 7200, 'elapsed')).toBe('1:02:03');
+    expect(fns.formatTimeReadout(3723, 7200, 'remaining')).toBe('-57:57');
+    expect(fns.formatTimeReadout(60, 7200, 'remaining')).toBe('-1:59:00');
+    expect(fns.formatTime(59)).toBe('0:59');
+    expect(fns.formatTime(600)).toBe('10:00');
+  });
+
+  test('remaining never shows -0:00 and never goes below zero', () => {
+    expect(fns.formatTimeReadout(204, 204, 'remaining')).toBe('0:00');
+    expect(fns.formatTimeReadout(203.9, 204, 'remaining')).toBe('-0:01');
+    expect(fns.formatTimeReadout(210, 204, 'remaining')).toBe('0:00');
+    expect(fns.formatTimeReadout(NaN, 204, 'remaining')).toBe('-3:24');
+  });
+
+  test('with no duration the readout shows elapsed in either mode', () => {
+    // A live stream at 1:12 has no end to count down to
+    expect(fns.formatTimeReadout(72, 0, 'remaining')).toBe('1:12');
+    expect(fns.formatTimeReadout(72, 0, 'elapsed')).toBe('1:12');
+    expect(fns.formatTimeReadout(0, 0, 'remaining')).toBe('0:00');
+    expect(fns.formatTimeReadout(NaN, undefined, 'remaining')).toBe('0:00');
+    expect(fns.formatTimeReadout(72, -1, 'remaining')).toBe('1:12');
+  });
+
+  test('an unknown mode falls back to elapsed', () => {
+    expect(fns.formatTimeReadout(83, 204, 'bogus')).toBe('1:23');
+    expect(fns.formatTimeReadout(83, 204, undefined)).toBe('1:23');
+  });
+
+  test('clicking flips between the two modes and back', () => {
+    expect(fns.nextTimeMode('elapsed')).toBe('remaining');
+    expect(fns.nextTimeMode('remaining')).toBe('elapsed');
+    // Anything unexpected lands on a valid mode after one click
+    expect(fns.nextTimeMode(undefined)).toBe('remaining');
+    expect(fns.nextTimeMode(fns.nextTimeMode('elapsed'))).toBe('elapsed');
+  });
+
+  test('a saved mode is restored only if it is a known value', () => {
+    expect(fns.parseTimeMode('elapsed')).toBe('elapsed');
+    expect(fns.parseTimeMode('remaining')).toBe('remaining');
+    expect(fns.parseTimeMode('bogus')).toBeNull();
+    expect(fns.parseTimeMode(42)).toBeNull();
+    expect(fns.parseTimeMode(undefined)).toBeNull();
+  });
+
+  test('playing to stopped parks the ticker and reads 0:00 in remaining mode', () => {
+    const seekState = { position: 0, duration: 204, isPlaying: true, lastTrack: 'Song', startPos: 132 };
+    // Remaining mode, 72s into a 204s track: counter reads -2:12 while playing
+    expect(fns.formatTimeReadout(72, seekState.duration, 'remaining')).toBe('-2:12');
+
+    const pos = fns.parkSeekWithoutDuration(seekState, { state: 'stopped', duration: 0, position: 0 });
+    expect(seekState.isPlaying).toBe(false);   // the ticker's own stop condition
+    expect(seekState.duration).toBe(0);        // nothing left to count against
+    expect(seekState.lastTrack).toBe('');      // next track starts a fresh transition
+    expect(pos).toBe(0);
+    expect(fns.formatTimeReadout(pos, seekState.duration, 'remaining')).toBe('0:00');
+    expect(fns.formatTimeReadout(pos, seekState.duration, 'elapsed')).toBe('0:00');
+  });
+
+  test('stopped reads 0:00 even if a stale position comes back', () => {
+    const seekState = { position: 90, duration: 204, isPlaying: true, lastTrack: 'Song' };
+    expect(fns.parkSeekWithoutDuration(seekState, { state: 'stopped', position: 90 })).toBe(0);
+  });
+
+  test('a stream with no duration keeps showing the player position', () => {
+    // Already at duration 0, never had a ticker: each poll still reports where the player is
+    const seekState = { position: 0, duration: 0, isPlaying: false, lastTrack: '' };
+    const pos = fns.parkSeekWithoutDuration(seekState, { state: 'playing', duration: 0, position: 75 });
+    expect(pos).toBe(75);
+    expect(fns.formatTimeReadout(pos, 0, 'remaining')).toBe('1:15');
+    expect(fns.formatTimeReadout(pos, 0, 'elapsed')).toBe('1:15');
+    expect(seekState.isPlaying).toBe(false);
+  });
+
+  test('skipping from a track to a stream drops the old track duration', () => {
+    const seekState = { position: 10, duration: 204, isPlaying: true, lastTrack: 'Song' };
+    const pos = fns.parkSeekWithoutDuration(seekState, { state: 'playing', duration: 0, position: 3 });
+    expect(seekState.isPlaying).toBe(false);
+    expect(seekState.duration).toBe(0);
+    expect(fns.formatTimeReadout(pos, seekState.duration, 'remaining')).toBe('0:03');
+  });
+
+  test('a missing position parks at zero', () => {
+    const seekState = { position: 5, duration: 100, isPlaying: true, lastTrack: 'x' };
+    expect(fns.parkSeekWithoutDuration(seekState, { state: 'paused', duration: 0 })).toBe(0);
+  });
+
+  test('every position readout goes through renderTime', () => {
+    expect((appCode.match(/timeCurrent\.textContent\s*=/g) || []).length).toBe(1);
+    expect((appCode.match(/seekTimeLeft\.textContent\s*=/g) || []).length).toBe(1);
+  });
+
+  test('the no-duration branch of updateUI stops the ticker and renders once', () => {
+    expect(appCode).toMatch(
+      /else if \(newState\.duration <= 0\) \{[\s\S]*?parkSeekWithoutDuration\(seek, newState\);\s*stopTimeUpdater\(\);\s*renderTime\(pos, 0\);/
+    );
+  });
+
+  test('both readouts are wired to the toggle and the choice is saved', () => {
+    expect(appCode).toContain("timeDisplay.addEventListener('click', toggleTimeMode)");
+    expect(appCode).toContain("seekTimeLeft.addEventListener('click', toggleTimeMode)");
+    expect(appCode).toMatch(/function toggleTimeMode\(\)[\s\S]*?nextTimeMode\(state\.timeMode\)[\s\S]*?renderTime\(lastTime\.pos, lastTime\.dur\)[\s\S]*?prefs\.timeMode = state\.timeMode;[\s\S]*?prefs\.save\(prefs\)/);
+  });
+
+  test('playlist rows use the same formatter as the counter', () => {
+    expect(appCode).toContain('const durStr = formatTime(track.duration);');
+    expect(fns.formatTime(3723)).toBe('1:02:03');
+  });
+
+  test('both readouts look clickable', () => {
+    expect(css).toMatch(/\.time-display\s*\{[^}]*cursor:\s*pointer/);
+    expect(css).toMatch(/\.seek-time-left\s*\{[^}]*cursor:\s*pointer/);
+    expect(html).toContain('id="time-display"');
+    expect(html).toContain('id="seek-time-left"');
+  });
 });
 
 describe('Security', () => {
@@ -460,6 +1103,12 @@ describe('Security', () => {
     expect(mainCode).toContain('sandbox: true');
   });
 
+  test('app.js swallows drops, so a dropped link or file cannot navigate the window', () => {
+    const appSource = fs.readFileSync(path.join(__dirname, '..', 'src', 'js', 'app.js'), 'utf-8');
+    expect(appSource).toMatch(/addEventListener\('dragover', \(e\) => \{\s*e\.preventDefault\(\);/);
+    expect(appSource).toContain("addEventListener('drop', (e) => e.preventDefault())");
+  });
+
   test('preload.js does not leak IPC event object', () => {
     const preloadCode = fs.readFileSync(path.join(__dirname, '..', 'preload.js'), 'utf-8');
     // Should wrap callback to strip event
@@ -468,7 +1117,9 @@ describe('Security', () => {
 
   test('main.js validates themes:load themeId against path traversal', () => {
     const mainCode = fs.readFileSync(path.join(__dirname, '..', 'main.js'), 'utf-8');
-    expect(mainCode).toMatch(/\/\\\\]|\\\.\\\./);  // Checks for path traversal regex
+    const themeChecks = fs.readFileSync(path.join(__dirname, '..', 'lib', 'theme-zip.js'), 'utf-8');
+    expect(themeChecks).toMatch(/\/\\\\]|\\\.\\\./);  // Checks for path traversal regex
+    expect(mainCode).toMatch(/themes:load', \(_, themeId\) => \{\s+if \(!isSafeThemeName\(themeId\)\) return null;/);
   });
 });
 

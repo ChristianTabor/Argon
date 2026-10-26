@@ -2,6 +2,7 @@ module.exports = {
   testEnvironment: 'node',
   collectCoverageFrom: [
     'main.js',
+    'lib/**/*.js',
     'preload.js',
     'src/js/**/*.js',
   ],
