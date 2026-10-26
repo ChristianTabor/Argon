@@ -199,6 +199,26 @@
 
   // ─── Visualizer ────────────────────────────────────────────────────────
   const viz = new Visualizer($('#visualizer'));
+  const VIZ_STATES = {
+    playing: 'playing',
+    paused: 'paused',
+    stopped: 'stopped',
+    'fast forwarding': 'seeking',
+    rewinding: 'seeking',
+  };
+
+  // Restore the saved visualizer mode
+  (async () => {
+    const p = await window.api.prefs.load();
+    if (p.visualizer) viz.setMode(p.visualizer);
+  })();
+
+  async function cycleVizMode() {
+    const mode = viz.nextMode();
+    const prefs = await window.api.prefs.load();
+    prefs.visualizer = mode;
+    await window.api.prefs.save(prefs);
+  }
 
   // ─── Theme Manager ────────────────────────────────────────────────────
   const themeManager = new ThemeManager();
@@ -398,7 +418,7 @@
     btnPlayPause.classList.toggle('active', isPlaying);
 
     player.classList.toggle('playing', isPlaying);
-    viz.setPlaying(isPlaying);
+    viz.setState(VIZ_STATES[newState.state] || 'stopped');
 
     if (artworkPlaceholder) {
       artworkPlaceholder.classList.toggle('stopped', !isPlaying);
@@ -409,6 +429,7 @@
       const displayText = `${newState.track}  \u2014  ${newState.artist}`;
       setMarquee(displayText);
       state.lastTrack = newState.track;
+      viz.trackChanged();
 
       // Update separate track info display
       trackNameDisplay.textContent = newState.track;
@@ -977,7 +998,7 @@
   btnOpenThemesFolder.addEventListener('click', () => window.api.themes.openFolder());
 
   // ─── Visualizer Mode Toggle ───────────────────────────────────────────
-  vizModeToggle.addEventListener('click', () => viz.nextMode());
+  vizModeToggle.addEventListener('click', cycleVizMode);
 
   // ─── Lyrics Panel ────────────────────────────────────────────────────
   async function fetchLyrics() {
@@ -1244,7 +1265,7 @@
         themeManager.toggle();
         btnThemes.classList.toggle('active', themeManager.isOpen);
         break;
-      case 'KeyV': viz.nextMode(); break;
+      case 'KeyV': cycleVizMode(); break;
       case 'KeyD':
         if (btnTextMode) btnTextMode.click();
         break;
