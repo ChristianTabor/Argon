@@ -624,7 +624,7 @@ ipcMain.handle('prefs:save', (_, prefs) => {
   const allowed = {
     theme: 'string', visualizer: 'string', alwaysOnTop: 'boolean',
     transparency: 'number', darkText: 'boolean', eqBands: 'object',
-    eqPreset: 'string', miniMode: 'boolean', hideDockIcon: 'boolean',
+    eqPreset: 'string', miniMode: 'boolean', hideDockIcon: 'boolean', timeMode: 'string',
     mediaKeys: 'boolean', globalShortcuts: 'boolean',
     playlistVisible: 'boolean',
   };

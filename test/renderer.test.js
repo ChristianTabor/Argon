@@ -934,6 +934,148 @@ describe('Windowshade Bar', () => {
   });
 });
 
+describe('Time Display Toggle', () => {
+  let html, css, appCode, fns;
+
+  beforeAll(() => {
+    html = fs.readFileSync(path.join(__dirname, '..', 'src', 'index.html'), 'utf-8');
+    css = fs.readFileSync(path.join(__dirname, '..', 'src', 'styles', 'base.css'), 'utf-8');
+    appCode = fs.readFileSync(path.join(__dirname, '..', 'src', 'js', 'app.js'), 'utf-8');
+    // Pull the pure helpers out of app.js so the real code is what gets tested
+    const names = ['formatTime', 'formatTimeReadout', 'nextTimeMode', 'parseTimeMode', 'parkSeekWithoutDuration'];
+    const grab = (name) => appCode.match(new RegExp(`  function ${name}\\([^)]*\\) \\{\\n[\\s\\S]*?\\n  \\}\\n`))[0];
+    fns = new Function(`${names.map(grab).join('\n')}\nreturn { ${names.join(', ')} };`)();
+  });
+
+  test('elapsed shows position, remaining shows a negative countdown', () => {
+    expect(fns.formatTimeReadout(83, 204, 'elapsed')).toBe('1:23');
+    expect(fns.formatTimeReadout(83, 204, 'remaining')).toBe('-2:01');
+  });
+
+  test('elapsed plus remaining adds up to the total shown', () => {
+    // 200.37s track: total reads 3:20, so at 1.2s remaining must be 3:19, not 3:20
+    expect(fns.formatTime(200.37)).toBe('3:20');
+    expect(fns.formatTimeReadout(1.2, 200.37, 'remaining')).toBe('-3:19');
+  });
+
+  test('long tracks show hours in both modes', () => {
+    expect(fns.formatTime(3723)).toBe('1:02:03');
+    expect(fns.formatTimeReadout(3723, 7200, 'elapsed')).toBe('1:02:03');
+    expect(fns.formatTimeReadout(3723, 7200, 'remaining')).toBe('-57:57');
+    expect(fns.formatTimeReadout(60, 7200, 'remaining')).toBe('-1:59:00');
+    expect(fns.formatTime(59)).toBe('0:59');
+    expect(fns.formatTime(600)).toBe('10:00');
+  });
+
+  test('remaining never shows -0:00 and never goes below zero', () => {
+    expect(fns.formatTimeReadout(204, 204, 'remaining')).toBe('0:00');
+    expect(fns.formatTimeReadout(203.9, 204, 'remaining')).toBe('-0:01');
+    expect(fns.formatTimeReadout(210, 204, 'remaining')).toBe('0:00');
+    expect(fns.formatTimeReadout(NaN, 204, 'remaining')).toBe('-3:24');
+  });
+
+  test('with no duration the readout shows elapsed in either mode', () => {
+    // A live stream at 1:12 has no end to count down to
+    expect(fns.formatTimeReadout(72, 0, 'remaining')).toBe('1:12');
+    expect(fns.formatTimeReadout(72, 0, 'elapsed')).toBe('1:12');
+    expect(fns.formatTimeReadout(0, 0, 'remaining')).toBe('0:00');
+    expect(fns.formatTimeReadout(NaN, undefined, 'remaining')).toBe('0:00');
+    expect(fns.formatTimeReadout(72, -1, 'remaining')).toBe('1:12');
+  });
+
+  test('an unknown mode falls back to elapsed', () => {
+    expect(fns.formatTimeReadout(83, 204, 'bogus')).toBe('1:23');
+    expect(fns.formatTimeReadout(83, 204, undefined)).toBe('1:23');
+  });
+
+  test('clicking flips between the two modes and back', () => {
+    expect(fns.nextTimeMode('elapsed')).toBe('remaining');
+    expect(fns.nextTimeMode('remaining')).toBe('elapsed');
+    // Anything unexpected lands on a valid mode after one click
+    expect(fns.nextTimeMode(undefined)).toBe('remaining');
+    expect(fns.nextTimeMode(fns.nextTimeMode('elapsed'))).toBe('elapsed');
+  });
+
+  test('a saved mode is restored only if it is a known value', () => {
+    expect(fns.parseTimeMode('elapsed')).toBe('elapsed');
+    expect(fns.parseTimeMode('remaining')).toBe('remaining');
+    expect(fns.parseTimeMode('bogus')).toBeNull();
+    expect(fns.parseTimeMode(42)).toBeNull();
+    expect(fns.parseTimeMode(undefined)).toBeNull();
+  });
+
+  test('playing to stopped parks the ticker and reads 0:00 in remaining mode', () => {
+    const seekState = { position: 0, duration: 204, isPlaying: true, lastTrack: 'Song', startPos: 132 };
+    // Remaining mode, 72s into a 204s track: counter reads -2:12 while playing
+    expect(fns.formatTimeReadout(72, seekState.duration, 'remaining')).toBe('-2:12');
+
+    const pos = fns.parkSeekWithoutDuration(seekState, { state: 'stopped', duration: 0, position: 0 });
+    expect(seekState.isPlaying).toBe(false);   // the ticker's own stop condition
+    expect(seekState.duration).toBe(0);        // nothing left to count against
+    expect(seekState.lastTrack).toBe('');      // next track starts a fresh transition
+    expect(pos).toBe(0);
+    expect(fns.formatTimeReadout(pos, seekState.duration, 'remaining')).toBe('0:00');
+    expect(fns.formatTimeReadout(pos, seekState.duration, 'elapsed')).toBe('0:00');
+  });
+
+  test('stopped reads 0:00 even if a stale position comes back', () => {
+    const seekState = { position: 90, duration: 204, isPlaying: true, lastTrack: 'Song' };
+    expect(fns.parkSeekWithoutDuration(seekState, { state: 'stopped', position: 90 })).toBe(0);
+  });
+
+  test('a stream with no duration keeps showing the player position', () => {
+    // Already at duration 0, never had a ticker: each poll still reports where the player is
+    const seekState = { position: 0, duration: 0, isPlaying: false, lastTrack: '' };
+    const pos = fns.parkSeekWithoutDuration(seekState, { state: 'playing', duration: 0, position: 75 });
+    expect(pos).toBe(75);
+    expect(fns.formatTimeReadout(pos, 0, 'remaining')).toBe('1:15');
+    expect(fns.formatTimeReadout(pos, 0, 'elapsed')).toBe('1:15');
+    expect(seekState.isPlaying).toBe(false);
+  });
+
+  test('skipping from a track to a stream drops the old track duration', () => {
+    const seekState = { position: 10, duration: 204, isPlaying: true, lastTrack: 'Song' };
+    const pos = fns.parkSeekWithoutDuration(seekState, { state: 'playing', duration: 0, position: 3 });
+    expect(seekState.isPlaying).toBe(false);
+    expect(seekState.duration).toBe(0);
+    expect(fns.formatTimeReadout(pos, seekState.duration, 'remaining')).toBe('0:03');
+  });
+
+  test('a missing position parks at zero', () => {
+    const seekState = { position: 5, duration: 100, isPlaying: true, lastTrack: 'x' };
+    expect(fns.parkSeekWithoutDuration(seekState, { state: 'paused', duration: 0 })).toBe(0);
+  });
+
+  test('every position readout goes through renderTime', () => {
+    expect((appCode.match(/timeCurrent\.textContent\s*=/g) || []).length).toBe(1);
+    expect((appCode.match(/seekTimeLeft\.textContent\s*=/g) || []).length).toBe(1);
+  });
+
+  test('the no-duration branch of updateUI stops the ticker and renders once', () => {
+    expect(appCode).toMatch(
+      /else if \(newState\.duration <= 0\) \{[\s\S]*?parkSeekWithoutDuration\(seek, newState\);\s*stopTimeUpdater\(\);\s*renderTime\(pos, 0\);/
+    );
+  });
+
+  test('both readouts are wired to the toggle and the choice is saved', () => {
+    expect(appCode).toContain("timeDisplay.addEventListener('click', toggleTimeMode)");
+    expect(appCode).toContain("seekTimeLeft.addEventListener('click', toggleTimeMode)");
+    expect(appCode).toMatch(/function toggleTimeMode\(\)[\s\S]*?nextTimeMode\(state\.timeMode\)[\s\S]*?renderTime\(lastTime\.pos, lastTime\.dur\)[\s\S]*?prefs\.timeMode = state\.timeMode;[\s\S]*?prefs\.save\(prefs\)/);
+  });
+
+  test('playlist rows use the same formatter as the counter', () => {
+    expect(appCode).toContain('const durStr = formatTime(track.duration);');
+    expect(fns.formatTime(3723)).toBe('1:02:03');
+  });
+
+  test('both readouts look clickable', () => {
+    expect(css).toMatch(/\.time-display\s*\{[^}]*cursor:\s*pointer/);
+    expect(css).toMatch(/\.seek-time-left\s*\{[^}]*cursor:\s*pointer/);
+    expect(html).toContain('id="time-display"');
+    expect(html).toContain('id="seek-time-left"');
+  });
+});
+
 describe('Security', () => {
   let html, themeManagerCode;
 

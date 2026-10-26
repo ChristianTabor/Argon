@@ -8,6 +8,7 @@
   const player = $('#player');
   const marqueeText = $('#marquee-text');
   const albumDisplay = $('#album-display');
+  const timeDisplay = $('#time-display');
   const timeCurrent = $('#time-current');
   const timeTotal = $('#time-total');
   const seekTimeLeft = $('#seek-time-left');
@@ -106,6 +107,7 @@
     eqOpen: false,
     eqBands: [0,0,0,0,0,0,0,0,0,0],
     miniMode: false,
+    timeMode: 'elapsed', // 'elapsed' | 'remaining' (click the time to toggle)
   };
 
   // Drag state (declared early — referenced by updateUI before seek/volume sections)
@@ -187,9 +189,7 @@
       seekHandle.style.left = `${pct}%`;
       stopTimeUpdater();
 
-      const timeStr = formatTime(posSec);
-      timeCurrent.textContent = timeStr;
-      seekTimeLeft.textContent = timeStr;
+      renderTime(posSec, durSec);
     }
   }
 
@@ -203,9 +203,7 @@
       }
       const elapsed = (performance.now() - seek.startedAt) / 1000;
       const displayPos = Math.min(seek.startPos + elapsed, seek.duration);
-      const timeStr = formatTime(displayPos);
-      timeCurrent.textContent = timeStr;
-      seekTimeLeft.textContent = timeStr;
+      renderTime(displayPos, seek.duration);
       if (state.miniMode && seek.duration > 0) {
         miniSeekFill.style.width = `${(displayPos / seek.duration) * 100}%`;
       }
@@ -430,10 +428,82 @@
   // ─── Formatting ────────────────────────────────────────────────────────
   function formatTime(seconds) {
     if (!seconds || seconds < 0) return '0:00';
-    const m = Math.floor(seconds / 60);
+    const h = Math.floor(seconds / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
     const s = Math.floor(seconds % 60);
-    return `${m}:${s.toString().padStart(2, '0')}`;
+    const ss = s.toString().padStart(2, '0');
+    return h > 0 ? `${h}:${m.toString().padStart(2, '0')}:${ss}` : `${m}:${ss}`;
   }
+
+  // Elapsed ('1:23') or remaining ('-2:01', Winamp-style). Whole seconds, so elapsed + remaining
+  // always adds up to the total shown, and the end of a track reads '0:00', never '-0:00'.
+  // With no duration (stopped, end of playlist, live stream) remaining has no meaning, so it
+  // always shows elapsed.
+  function formatTimeReadout(posSec, durSec, mode) {
+    if (mode !== 'remaining' || !(durSec > 0)) return formatTime(posSec);
+    const left = Math.max(0, Math.floor(durSec || 0) - Math.floor(posSec || 0));
+    return left > 0 ? `-${formatTime(left)}` : '0:00';
+  }
+
+  // A poll that reports no duration (stopped, end of playlist, live stream): park the seek state
+  // so the ticker stops, and return the position to show. Stopped always reads 0:00.
+  function parkSeekWithoutDuration(seekState, polled) {
+    seekState.isPlaying = false;
+    seekState.duration = 0;
+    seekState.lastTrack = '';
+    seekState.position = polled.state === 'stopped' ? 0 : (polled.position || 0);
+    return seekState.position;
+  }
+
+  // The one place the position readouts are written (classic display and inline seek time)
+  let lastTime = { pos: 0, dur: 0 };
+  function renderTime(posSec, durSec) {
+    lastTime = { pos: posSec, dur: durSec };
+    const str = formatTimeReadout(posSec, durSec, state.timeMode);
+    timeCurrent.textContent = str;
+    seekTimeLeft.textContent = str;
+  }
+
+  function updateTimeModeTitles() {
+    const tip = state.timeMode === 'remaining' ? 'Click to show elapsed time' : 'Click to show remaining time';
+    timeDisplay.title = tip;
+    seekTimeLeft.title = tip;
+  }
+
+  function nextTimeMode(mode) {
+    return mode === 'remaining' ? 'elapsed' : 'remaining';
+  }
+
+  // A saved mode is only trusted if it is one of the two known values
+  function parseTimeMode(saved) {
+    return saved === 'elapsed' || saved === 'remaining' ? saved : null;
+  }
+
+  function toggleTimeMode() {
+    state.timeMode = nextTimeMode(state.timeMode);
+    updateTimeModeTitles();
+    renderTime(lastTime.pos, lastTime.dur);
+    (async () => {
+      const prefs = await window.api.prefs.load();
+      prefs.timeMode = state.timeMode;
+      await window.api.prefs.save(prefs);
+    })();
+  }
+
+  timeDisplay.addEventListener('click', toggleTimeMode);
+  seekTimeLeft.addEventListener('click', toggleTimeMode);
+  updateTimeModeTitles();
+
+  // Restore the saved mode (ignore anything but the two known values)
+  (async () => {
+    const p = await window.api.prefs.load();
+    const saved = parseTimeMode(p.timeMode);
+    if (saved) {
+      state.timeMode = saved;
+      updateTimeModeTitles();
+      renderTime(lastTime.pos, lastTime.dur);
+    }
+  })();
 
   function setMarquee(text) {
     marqueeText.textContent = text;
@@ -580,6 +650,9 @@
       seekHandle.style.transition = 'none';
       seekFill.style.width = '0%';
       seekHandle.style.left = '0%';
+      const pos = parkSeekWithoutDuration(seek, newState);
+      stopTimeUpdater();
+      renderTime(pos, 0);
     }
 
     // Time total (only changes on track change)
@@ -860,9 +933,7 @@
       el.className = 'playlist-track' + (track.index === data.currentIndex ? ' active' : '');
       el.dataset.index = track.index;
 
-      const durMin = Math.floor(track.duration / 60);
-      const durSec = Math.floor(track.duration % 60);
-      const durStr = `${durMin}:${durSec.toString().padStart(2, '0')}`;
+      const durStr = formatTime(track.duration);
 
       const numDisplay = track.index === data.currentIndex
         ? '<svg width="12" height="12" viewBox="0 0 16 16" style="vertical-align:middle"><path d="M2 6h2.5L8 3v10L4.5 10H2V6Z" fill="currentColor"/><path d="M10.5 5.5c1 1 1 3.5 0 5" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round"/></svg>'
@@ -944,9 +1015,7 @@
     seekFill.style.width = `${pct * 100}%`;
     seekHandle.style.left = `${pct * 100}%`;
     const pos = pct * seek.duration;
-    const timeStr = formatTime(pos);
-    timeCurrent.textContent = timeStr;
-    seekTimeLeft.textContent = timeStr;
+    renderTime(pos, seek.duration);
     return pct;
   }
 

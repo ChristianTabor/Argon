@@ -402,6 +402,7 @@ button {
   font-size: var(--fs-time);
   color: var(--accent);
   text-shadow: 0 0 10px var(--accent-glow);
+  cursor: pointer;
 }
 
 .time-separator {
@@ -567,6 +568,10 @@ button {
   white-space: nowrap;
   flex-shrink: 0;
   min-width: 32px;
+}
+
+.seek-time-left {
+  cursor: pointer;
 }
 
 .seek-time-right {

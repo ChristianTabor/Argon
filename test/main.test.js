@@ -757,6 +757,17 @@ describe('Prefs', () => {
     expect(JSON.parse(fs.writeFileSync.mock.calls[0][1])).not.toHaveProperty('playlistVisible');
   });
 
+  test('prefs:save keeps timeMode and drops a non-string one', () => {
+    const fs = require('fs');
+    fs.writeFileSync.mockClear();
+    ipcHandlers['prefs:save']({}, { timeMode: 'remaining' });
+    expect(JSON.parse(fs.writeFileSync.mock.calls[0][1]).timeMode).toBe('remaining');
+
+    fs.writeFileSync.mockClear();
+    ipcHandlers['prefs:save']({}, { timeMode: 42 });
+    expect(JSON.parse(fs.writeFileSync.mock.calls[0][1]).timeMode).toBeUndefined();
+  });
+
   test('prefs:save merges into saved prefs instead of clobbering main-process keys', () => {
     const fs = require('fs');
     fs.existsSync.mockImplementation((p) => String(p).endsWith('prefs.json'));
