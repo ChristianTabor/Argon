@@ -693,7 +693,7 @@ describe('Favorite button', () => {
     html = read('src', 'index.html');
     appCode = read('src', 'js', 'app.js');
     css = read('src', 'styles', 'base.css');
-    themeGuide = read('THEME_GUIDE.md');
+    themeGuide = read('docs', 'themes.md'); // THEME_GUIDE.md is a pointer to it now
   });
 
   test('has an accessible name and pressed state, and starts hidden', () => {
