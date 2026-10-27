@@ -60,6 +60,7 @@ build_and_install() {
     --ignore="^/\.git" \
     --ignore="^/\.claude" \
     --ignore="^/assets" \
+    --ignore="^/docs" \
     --ignore="THEME_GUIDE\.md" \
     2>&1 | grep -E "^(Packaging|Wrote|WARNING)" || true
 

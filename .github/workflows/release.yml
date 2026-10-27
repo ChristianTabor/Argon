@@ -43,6 +43,7 @@ jobs:
               --ignore="^/\.claude" \
               --ignore="^/assets" \
               --ignore="^/test" \
+              --ignore="^/docs" \
               --ignore="THEME_GUIDE\.md"
           done
 
