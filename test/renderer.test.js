@@ -394,8 +394,8 @@ describe('App.js Logic', () => {
     beforeAll(() => {
       const grab = (re) => appCode.match(re)[0];
       const src = [
-        grab(/function toggleMarqueePause[\s\S]*?\n  }\n/),
-        grab(/function reverseMarquee[\s\S]*?\n  }\n/),
+        grab(/function toggleMarqueePause[\s\S]*?\n {2}}\n/),
+        grab(/function reverseMarquee[\s\S]*?\n {2}}\n/),
         'return { toggleMarqueePause, reverseMarquee };',
       ].join('\n');
       load = (marqueeText) => new Function('marqueeText', src)(marqueeText);
@@ -1117,7 +1117,9 @@ describe('Security', () => {
 
   test('main.js validates themes:load themeId against path traversal', () => {
     const mainCode = fs.readFileSync(path.join(__dirname, '..', 'main.js'), 'utf-8');
-    expect(mainCode).toMatch(/\/\\\\]|\\\.\\\./);  // Checks for path traversal regex
+    const themeChecks = fs.readFileSync(path.join(__dirname, '..', 'lib', 'theme-zip.js'), 'utf-8');
+    expect(themeChecks).toMatch(/\/\\\\]|\\\.\\\./);  // Checks for path traversal regex
+    expect(mainCode).toMatch(/themes:load', \(_, themeId\) => \{\s+if \(!isSafeThemeName\(themeId\)\) return null;/);
   });
 });
 

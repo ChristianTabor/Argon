@@ -124,6 +124,10 @@ jest.mock('fs', () => ({
 
 // ─── Load main.js ───────────────────────────────────────────────────────────
 
+const scripts = require('../lib/apple-music');
+const { execFile } = require('child_process');
+const { app } = require('electron');
+
 beforeAll(() => {
   require('../main.js');
 });
@@ -200,7 +204,7 @@ describe('Bit rate and sample rate', () => {
     const script = execFile.mock.calls[0][1][1];
     expect(script).toContain('bit rate of current track');
     expect(script).toContain('sample rate of current track');
-    expect(script).toMatch(/repeatMode & "\|\|" & trackBitRate & "\|\|" & trackSampleRate\s/);
+    expect(script).toMatch(/repeatMode & sep & trackBitRate & sep & trackSampleRate\s/);
   });
 
   test('lossless and hi-res values pass through', async () => {
@@ -251,7 +255,7 @@ describe('Favorite', () => {
     await ipcHandlers['music:getState']();
     const script = execFile.mock.calls[0][1][1];
     expect(script).toMatch(/try\s+set trackFavorited to \(favorited of current track\) as string\s+end try/);
-    expect(script).toMatch(/trackSampleRate & "\|\|" & trackPersistentId & "\|\|" & trackFavorited\s/);
+    expect(script).toMatch(/trackSampleRate & sep & trackPersistentId & sep & trackFavorited\s/);
   });
 
   test.each([
@@ -691,11 +695,23 @@ describe('Security — Input Validation', () => {
     const fs = require('fs');
     fs.writeFileSync.mockClear();
     ipcHandlers['prefs:save']({}, { theme: 'classic', __proto__: { evil: true }, unknownKey: 'dropped' });
-    if (fs.writeFileSync.mock.calls.length > 0) {
-      const saved = JSON.parse(fs.writeFileSync.mock.calls[0][1]);
-      expect(saved.unknownKey).toBeUndefined();
-      expect(saved.theme).toBe('classic');
-    }
+    expect(fs.writeFileSync).toHaveBeenCalled();
+    const saved = JSON.parse(fs.writeFileSync.mock.calls[0][1]);
+    expect(saved.unknownKey).toBeUndefined();
+    expect(saved.evil).toBeUndefined();
+    expect(saved.theme).toBe('classic');
+    expect(Object.keys(saved)).not.toContain('__proto__');
+
+    const polluted = JSON.parse('{"theme":"sakura","__proto__":{"evil":true},"unknownKey":"dropped","transparency":"nope"}');
+    fs.writeFileSync.mockClear();
+    ipcHandlers['prefs:save']({}, polluted);
+    expect(fs.writeFileSync).toHaveBeenCalled();
+    const parsed = JSON.parse(fs.writeFileSync.mock.calls[0][1]);
+    expect(parsed.theme).toBe('sakura');
+    expect(parsed.unknownKey).toBeUndefined();
+    expect(parsed.evil).toBeUndefined();
+    expect(parsed.transparency).toBeUndefined();
+    expect(Object.keys(parsed)).not.toContain('__proto__');
   });
 
   test('notify:trackChange truncates long strings', () => {
@@ -1092,6 +1108,69 @@ describe('Dock Icon — pref on at startup', () => {
       fs.readFileSync.mockImplementation(() => '{}');
       Object.assign(ipcHandlers, savedHandlers);
       Object.assign(registeredShortcuts, savedShortcuts);
+    }
+  });
+});
+
+describe('AppleScript IPC', () => {
+  test('music:setVolume asks osascript for the builder script and skips rejected input', async () => {
+    execFile.mockClear();
+    await ipcHandlers['music:setVolume']({}, 40);
+    expect(execFile).toHaveBeenCalledWith(
+      'osascript',
+      ['-e', scripts.setVolume(40)],
+      expect.any(Object),
+      expect.any(Function)
+    );
+    execFile.mockClear();
+    expect(await ipcHandlers['music:setVolume']({}, '40')).toBeUndefined();
+    expect(await ipcHandlers['music:setVolume']({}, NaN)).toBeUndefined();
+    expect(execFile).not.toHaveBeenCalled();
+  });
+
+  test('music:getState keeps || inside a track name', async () => {
+    const payload = ['playing', 'A || B', 'Artist', 'Album', '240', '12', '75', 'false', 'off'].join(scripts.FIELD);
+    execFile.mockImplementationOnce((cmd, args, opts, cb) => {
+      if (typeof opts === 'function') cb = opts;
+      cb(null, `${payload}\n`, '');
+    });
+    const state = await ipcHandlers['music:getState']();
+    expect(state.track).toBe('A || B');
+    expect(state.artist).toBe('Artist');
+    expect(state.duration).toBe(240);
+    expect(execFile.mock.calls.at(-1)[1][1]).toBe(scripts.playerState());
+  });
+
+  test('music:getPlaylist keeps tabs inside a track name', async () => {
+    const row = ['2', 'Hello\tWorld', 'Artist', '90'].join(scripts.FIELD);
+    const payload = ['Mix', '2', '4', '1', row].join('\n');
+    execFile.mockImplementationOnce((cmd, args, opts, cb) => {
+      if (typeof opts === 'function') cb = opts;
+      cb(null, `${payload}\n`, '');
+    });
+    const playlist = await ipcHandlers['music:getPlaylist']();
+    expect(playlist.tracks[0].name).toBe('Hello\tWorld');
+    expect(execFile.mock.calls.at(-1)[1][1]).toBe(scripts.playlist());
+  });
+
+  test('music:getArtwork passes the temp path as argv instead of interpolating it', async () => {
+    const hostile = 'it\'s "quoted" & weird';
+    app.getPath.mockImplementation((name) => {
+      if (name === 'temp') return hostile;
+      return `/tmp/argon-test-${name}`;
+    });
+    execFile.mockClear();
+    try {
+      await ipcHandlers['music:getArtwork']();
+      const argv = execFile.mock.calls.at(-1)[1];
+      expect(argv[0]).toBe('-e');
+      expect(argv[1]).toBe(scripts.artworkScript());
+      expect(argv[1]).not.toContain(hostile);
+      expect(argv[2]).toBe('--');
+      expect(argv[3]).toContain(hostile);
+      expect(argv[3]).toContain('winamp_artwork.jpg');
+    } finally {
+      app.getPath.mockImplementation((name) => `/tmp/argon-test-${name}`);
     }
   });
 });

@@ -7,14 +7,21 @@
     "start": "electron .",
     "dev": "NODE_ENV=development electron .",
     "build": "./build-and-install.sh",
-    "test": "jest --verbose"
+    "test": "jest --verbose",
+    "lint": "eslint .",
+    "package:smoke": "node scripts/package-smoke.js"
   },
   "dependencies": {
     "electron": "^28.0.0"
   },
   "devDependencies": {
+    "@electron/asar": "^4.3.1",
     "@electron/packager": "^19.0.5",
-    "jest": "^30.2.0"
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.13.0",
+    "globals": "^17.13.0",
+    "jest": "^30.2.0",
+    "jest-environment-jsdom": "^30.5.2"
   },
   "author": "",
   "license": "MIT"

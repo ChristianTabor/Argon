@@ -95,7 +95,6 @@ async function loadApp({ prefs = {}, themeVars = {}, innerWidth = 320, innerHeig
   });
 
   const code = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'js', 'app.js'), 'utf-8');
-  // eslint-disable-next-line no-new-func
   const run = new Function('__g', `with (__g) { return (\n${code.trim().replace(/;$/, '')}\n); }`);
   await run(proxy);
   // let the startup awaits settle
